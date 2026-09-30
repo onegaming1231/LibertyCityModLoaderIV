@@ -102,4 +102,4 @@ Or press Find the Broken Mod and answer a few questions. The app finds the mod t
 
 GNU GPL v3 - see app/LICENSE-GPL3.txt. The full source code is in the app folder.
 
-Liberty City Mod Loader IV 1.0 - made by Feen Aka AnnaEn
+Liberty City Mod Loader IV 1.0 - made by Feen Aka AnnaEnxo
