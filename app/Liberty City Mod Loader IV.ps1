@@ -283,6 +283,22 @@ function Test-WholeArchiveCopy([string]$rel) {
 # (Fusion Fix only reads these lists from there). A line that points to a file that doesn't exist is left out.
 $DATA_DIR = "update\LC Installer Data"      # old place of the combined files - cleaned up
 $MERGE_TARGETS = @("common\data\gta.dat", "common\data\images.txt", "common\data\default.dat")
+# ---- car / ped data (handling.dat, vehicles.ide, peds.ide, carcols.dat, cargrp.dat, pedgrp.dat) ----
+# The game's own file + every mod's lines = one combined file in update\common\data. A line for a car or ped the
+# game already has replaces that line (the mod lower in My Mods wins); a new one is added in the right section.
+# Nothing is ever edited by hand, and turning the mod off takes its lines out again.
+$KEYED = [ordered]@{
+    "common\data\handling.dat" = "handling"
+    "common\data\vehicles.ide" = "ide:cars"
+    "common\data\peds.ide"     = "ide:peds"
+    "common\data\carcols.dat"  = "ide:"
+    "common\data\cargrp.dat"   = "grp"
+    "common\data\pedgrp.dat"   = "grp"
+}
+$MERGE_TARGETS = @($MERGE_TARGETS + @($KEYED.Keys))
+# a mod's notes file with blocks like "# handling.dat" followed by the lines to add - read and added for you
+$LINE_FILES = @{}
+foreach ($t in $MERGE_TARGETS) { $LINE_FILES[(Split-Path $t -Leaf)] = $t }
 function Test-MergeCopy([string]$rel) {
     if ($rel -notmatch '(?i)^update\\' -or $rel -match '(?i)^update\\LC Installer (Data|Archives)\\') { return $false }
     if ($rel -match '(?i)^update\\(common|pc|tlad|tbogt)\\') { return $false }     # the combined file itself
@@ -309,6 +325,87 @@ function Test-LineTarget([string]$line, $known) {
     }
     return $false
 }
+function Get-KeyedKey([string]$kind, [string]$t) {
+    if ($kind -eq "handling") { $tk = @($t -split '\s+'); if ($tk[0] -match '^[%!$^]$' -and $tk.Count -gt 1) { return ($tk[0] + " " + $tk[1]).ToLower() }; return $tk[0].ToLower() }
+    return ((($t -split ',')[0].Trim()) -split '\s+')[0].ToLower()
+}
+function Find-Section($lines, [string]$name) {
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if (([string]$lines[$i]).Trim() -ieq $name) {
+            for ($j = $i + 1; $j -lt $lines.Count; $j++) { if (([string]$lines[$j]).Trim() -ieq "end") { return @($i, $j) } }
+            return @($i, $lines.Count)
+        }
+    }
+    return $null
+}
+# puts one mod's lines into the combined file ($lines): same car/ped = replaced, new = added in its section
+function Merge-Keyed([string]$kind, $lines, [string]$srcPath, [string]$defSection) {
+    $changed = 0
+    $sec = $defSection
+    foreach ($raw in [IO.File]::ReadAllLines($srcPath)) {
+        $t = $raw.Trim()
+        if (-not $t) { continue }
+        if ($kind -eq "handling") {
+            if ($t.StartsWith(";") -or $t.StartsWith("#")) { continue }
+            if (@($t -split '\s+').Count -lt 10) { continue }
+            $k = Get-KeyedKey $kind $t; $at = -1; $lastData = -1; $lastSame = -1
+            $pre = $(if ($t[0] -match '[%!$^]') { [string]$t[0] } else { "" })      # boats %, bikes !, planes $, extras ^
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                $b = ([string]$lines[$i]).Trim()
+                if (-not $b -or $b.StartsWith(";") -or $b.StartsWith("#")) { continue }
+                $lastData = $i
+                if ($(if ($b[0] -match '[%!$^]') { [string]$b[0] } else { "" }) -eq $pre) { $lastSame = $i }
+                if ($at -lt 0 -and (Get-KeyedKey $kind $b) -eq $k) { $at = $i }
+            }
+            if ($at -ge 0) { if (([string]$lines[$at]).Trim() -ne $t) { $lines[$at] = $t; $changed++ } }
+            else { $lines.Insert($(if ($lastSame -ge 0) { $lastSame } else { $lastData }) + 1, $t); $changed++ }
+            continue
+        }
+        if ($kind -eq "grp") {
+            # "coach, # POPCYCLE_GROUP_AIRPORT_WORKERS" = add coach to that group's line
+            $h = $t.IndexOf("#"); if ($h -lt 1) { continue }
+            $label = @(($t.Substring($h + 1).Trim()) -split '\s+')[0]
+            if (-not $label) { continue }
+            $names = @($t.Substring(0, $h).Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[A-Za-z0-9_]+$' })
+            if ($names.Count -eq 0) { continue }
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                $b = [string]$lines[$i]; $bh = $b.IndexOf("#"); if ($bh -lt 1) { continue }
+                if (@(($b.Substring($bh + 1).Trim()) -split '\s+')[0] -ine $label) { continue }
+                $have = @($b.Substring(0, $bh).Split(",") | ForEach-Object { $_.Trim().ToLower() })
+                $new = @($names | Where-Object { $have -notcontains $_.ToLower() })
+                if ($new.Count -gt 0) { $lines[$i] = ($new -join ", ") + ", " + $b.TrimStart(); $changed++ }
+                break
+            }
+            continue
+        }
+        # vehicles.ide / peds.ide / carcols.dat: sections like "cars" ... "end"
+        if ($t.StartsWith("#")) { continue }
+        if ($t -match '^[A-Za-z][A-Za-z0-9_]*$') { if ($t -ieq "end") { $sec = $defSection } else { $sec = $t.ToLower() }; continue }
+        $k = Get-KeyedKey $kind $t
+        $useSec = $sec
+        if (-not $useSec) {
+            # a carcols line without its section: the car's own section if the game has it, else 4 numbers per colour = car4
+            $nums = @(($t -split ',') | Select-Object -Skip 1 | Where-Object { $_.Trim() -match '^\d+$' }).Count
+            $useSec = $(if ($nums -gt 0 -and $nums % 4 -eq 0) { "car4" } else { "car3" })
+            foreach ($cand in @("car3", "car4")) {
+                $r = Find-Section $lines $cand
+                if ($r) { for ($i = $r[0] + 1; $i -lt $r[1]; $i++) { $b = ([string]$lines[$i]).Trim(); if ($b -and -not $b.StartsWith("#") -and (Get-KeyedKey $kind $b) -eq $k) { $useSec = $cand } } }
+            }
+        }
+        $r = Find-Section $lines $useSec
+        if (-not $r) { [void]$lines.Add(""); [void]$lines.Add($useSec); [void]$lines.Add($t); [void]$lines.Add("end"); $changed++; continue }
+        $at = -1
+        for ($i = $r[0] + 1; $i -lt $r[1]; $i++) {
+            $b = ([string]$lines[$i]).Trim()
+            if (-not $b -or $b.StartsWith("#")) { continue }
+            if ($useSec -eq "col") { if ((Get-LineKey $b) -eq (Get-LineKey $t)) { $at = $i; break }; continue }
+            if ((Get-KeyedKey $kind $b) -eq $k) { $at = $i; break }
+        }
+        if ($at -ge 0) { if (([string]$lines[$at]).Trim() -ne $t) { $lines[$at] = $t; $changed++ } }
+        else { $lines.Insert($r[1], $t); $changed++ }
+    }
+    return $changed
+}
 function Rebuild-Merges($mods = $null) {
     if (-not $script:Game) { return }
     if ($null -eq $mods) { $mods = @(Load-Db) }
@@ -329,8 +426,10 @@ function Rebuild-Merges($mods = $null) {
         }
         $out = Join-Path $outRoot $target
         $orig = Join-Path $script:Game $target
+        $keepRp = Get-ReplacedFile ("update\" + $target)     # a copy that was there before the app combined this file
         if ($srcs.Count -eq 0 -or -not [IO.File]::Exists($orig)) {
             if ($ours.ContainsKey($target) -and [IO.File]::Exists($out)) { Remove-Item -LiteralPath $out -Force; Remove-EmptyDirs (Split-Path $out -Parent) }
+            if ($ours.ContainsKey($target) -and $KEYED.Contains($target) -and [IO.File]::Exists($keepRp)) { New-ParentDir $out; Move-Item -LiteralPath $keepRp -Destination $out -Force }
             $ours.Remove($target)
             continue
         }
@@ -340,9 +439,20 @@ function Rebuild-Merges($mods = $null) {
             foreach ($mm in @($mods)) { if (Test-ModOn $mm) { foreach ($f in @($mm.Files)) { if ($f) { $known[(Get-GamePath ([string]$f))] = $true } } } }
         }
         $lines = New-Object System.Collections.ArrayList
-        foreach ($l in [IO.File]::ReadAllLines($orig)) { [void]$lines.Add($l) }
-        $have = @{}; foreach ($l in $lines) { $have[(Get-LineKey $l)] = $true }
         $skipped = @()
+        if ($KEYED.Contains($target)) {
+            # start from what the game uses now: its own file, or a copy someone put in update\common\data before
+            if (-not $ours.ContainsKey($target) -and [IO.File]::Exists($out) -and -not [IO.File]::Exists($keepRp)) { New-ParentDir $keepRp; Copy-Item -LiteralPath $out -Destination $keepRp -Force }
+            $base = $(if ([IO.File]::Exists($keepRp)) { $keepRp } else { $orig })
+            foreach ($l in [IO.File]::ReadAllLines($base)) { [void]$lines.Add($l) }
+            $def = [string]$KEYED[$target]
+            $kind = $def.Split(":")[0]; $sec = $(if ($def.Contains(":")) { $def.Split(":")[1] } else { "" })
+            foreach ($s in $srcs) { try { [void](Merge-Keyed $kind $lines $s.Path $sec) } catch { $skipped += ($s.Mod + ": " + $_.Exception.Message) } }
+            $srcs = @()
+        } else {
+            foreach ($l in [IO.File]::ReadAllLines($orig)) { [void]$lines.Add($l) }
+        }
+        $have = @{}; foreach ($l in $lines) { $have[(Get-LineKey $l)] = $true }
         foreach ($s in $srcs) {
             foreach ($l in [IO.File]::ReadAllLines($s.Path)) {
                 $k = Get-LineKey $l
@@ -630,6 +740,29 @@ function Move-DataFiles {
     if ($changed.Count -gt 0) { Save-Db $mods; Save-Deployed $dep; Sync-Files $changed $mods }
     Rebuild-Merges $mods
     try { Update-TrainerLists $mods } catch { }
+}
+# car/ped data files that older versions placed whole in update\common\data: now they're combined with the game's own
+function Move-KeyedData {
+    $mods = @(Load-Db); $changed = @()
+    foreach ($m in $mods) {
+        if (-not (Test-InLibrary $m)) { continue }
+        $moved = $false
+        $files = @($m.Files | ForEach-Object { [string]$_ })
+        for ($i = 0; $i -lt $files.Count; $i++) {
+            $old = $files[$i]
+            if ($old -notmatch '(?i)^update\\common\\data\\[^\\]+$') { continue }
+            $gp = Get-GamePath $old
+            if (-not $KEYED.Contains($gp)) { continue }
+            $new = "update\" + [string]$m.Name + "\" + $gp
+            $lo = Get-LibFile $m.Name $old; $ln = Get-LibFile $m.Name $new
+            if (-not [IO.File]::Exists($lo)) { continue }
+            if (-not [IO.File]::Exists($ln)) { New-ParentDir $ln; Move-Item -LiteralPath $lo -Destination $ln -Force }
+            $files[$i] = $new; $moved = $true
+            $changed += @($old, $new)
+        }
+        if ($moved) { $m.Files = $files }
+    }
+    if ($changed.Count -gt 0) { Save-Db $mods; Sync-Files $changed $mods; Rebuild-Merges $mods; try { Update-TrainerLists $mods } catch { } }
 }
 # brings a mod's files (already in the game folder) into the library - used for mods found in the game folder
 function Import-ToLibrary($m) {
@@ -1272,6 +1405,44 @@ function Update-WholeCopies {
     if ($rels.Count -gt 0) { Sync-Files $rels $mods }
 }
 
+# is this a real line for that game file? (keeps readme sentences out)
+function Test-DataLine([string]$target, [string]$t) {
+    $leaf = Split-Path $target -Leaf
+    if ($leaf -eq "handling.dat") {
+        $tk = @($t -split '\s+')
+        return ($tk.Count -ge 10 -and $tk[0] -match '^[%!$^]?[A-Za-z0-9_]{2,16}$' -and @($tk | Where-Object { $_ -match '^-?\d+(\.\d+)?[A-Za-z]?$' }).Count -ge 8)
+    }
+    if ($leaf -eq "vehicles.ide" -or $leaf -eq "peds.ide") { return ($t -match '^(?i)(cars|peds|end|txdp)$' -or ($t.Split(',').Count -ge 6 -and $t -match '^[A-Za-z0-9_]+\s*,')) }
+    if ($leaf -eq "carcols.dat") { return ($t -match '^(?i)(col|car3|car4|end)$' -or $t -match '^[A-Za-z0-9_]+\s*,\s*\d+\s*,') }
+    if ($leaf -eq "cargrp.dat" -or $leaf -eq "pedgrp.dat") { return ($t -match '^[A-Za-z0-9_]+\s*,.*#\s*\S+') }
+    return ($t -match '(?i)^(IDE|IPL|IMG|CDIMAGE|COLFILE|HIERARCHY|TEXDICTION|MODELFILE|SPLASH|RADAR|MAPZONE)\b' -or $t -match '(?i)(common|pc|platform):/')
+}
+# a notes file with blocks like "# handling.dat" + lines: split into one small file per game file
+function Split-LinesFile($path) {
+    $out = @(); $cur = $null; $buf = @{}; $order = @()
+    foreach ($raw in [IO.File]::ReadAllLines($path)) {
+        $t = $raw.Trim()
+        if (-not $t) { continue }
+        $m = [regex]::Match($t, '^(?:#+|;+|//|-+|\[|=+|\*+)?\s*([A-Za-z0-9_]+\.(?:dat|ide|txt))\s*(?:\]|:|-+|=+|\*+)?\s*$')
+        if ($m.Success -and $LINE_FILES.ContainsKey($m.Groups[1].Value.ToLower())) {
+            $cur = $LINE_FILES[$m.Groups[1].Value.ToLower()]
+            if (-not $buf.ContainsKey($cur)) { $buf[$cur] = New-Object System.Collections.ArrayList; $order += $cur }
+            continue
+        }
+        if (-not $cur) { continue }
+        if (Test-DataLine $cur $t) { [void]$buf[$cur].Add($t) }
+    }
+    foreach ($k in $order) {
+        $ls = @($buf[$k] | ForEach-Object { [string]$_ })
+        $data = @($ls | Where-Object { $_ -notmatch '^(?i)(cars|peds|end|txdp|col|car3|car4)$' })
+        if ($data.Count -eq 0) { continue }
+        $leaf = Split-Path $k -Leaf
+        if (($leaf -eq "vehicles.ide" -or $leaf -eq "peds.ide") -and $ls[0] -notmatch '^(?i)(cars|peds|txdp)$') { $ls = @($(if ($leaf -eq "peds.ide") { "peds" } else { "cars" })) + $ls + @("end") }
+        if ($leaf -eq "carcols.dat" -and $ls[0] -match '^(?i)(col|car3|car4)$' -and $ls[-1] -ine "end") { $ls += "end" }
+        $out += [pscustomobject]@{ Target = $k; Lines = $ls; Count = $data.Count }
+    }
+    return $out
+}
 function Build-Plan($root, $modName) {
     $rows = New-Object System.Collections.ArrayList
     $files = @(Get-ChildItem $root -Recurse -File)
@@ -1395,6 +1566,21 @@ function Build-Plan($root, $modName) {
     foreach ($f in $files) {
         if ($oivHandled.ContainsKey($f.FullName)) { continue }
         if ($f.FullName -match "__oiv\\") { if ($f.Name -notmatch "\.(xml)$") { } ; continue }
+        # a notes file that lists lines for handling.dat, vehicles.ide, carcols.dat... - the app adds them for you
+        if ($f.Extension -match '(?i)^\.(txt|dat|ini)$' -and $f.Length -lt 1MB -and -not $LINE_FILES.ContainsKey($f.Name.ToLower())) {
+            $parts = @(); try { $parts = @(Split-LinesFile $f.FullName) } catch { }
+            if ($parts.Count -gt 0) {
+                $tmpDir = Join-Path (Get-DataDir) ("temp\lines\" + [guid]::NewGuid().ToString("N"))
+                foreach ($pt in $parts) {
+                    $leaf = Split-Path $pt.Target -Leaf
+                    $tf = Join-Path $tmpDir $leaf; New-ParentDir $tf
+                    [IO.File]::WriteAllLines($tf, [string[]]$pt.Lines)
+                    [void]$rows.Add((New-Row $tf (Get-UpdateDest $mod $pt.Target) "DATA LINES" ("From " + $f.Name + ": " + $pt.Count + " line" + $(if ($pt.Count -ne 1) { "s" } else { "" }) + " added to your game's " + $leaf)))
+                }
+                if ($f.Name -match '(?i)^read ?me') { [void]$rows.Add((New-DocRow $f)) }
+                continue
+            }
+        }
         if ((Is-Doc $f) -and -not ($codeText -and $f.Name -notmatch '(?i)^read ?me' -and $codeText.IndexOf([IO.Path]::GetFileNameWithoutExtension($f.Name), [StringComparison]::OrdinalIgnoreCase) -ge 0)) { [void]$rows.Add((New-DocRow $f)); continue }
 
         $rel = $f.FullName.Substring($root.Length).TrimStart("\")
@@ -1445,7 +1631,8 @@ function Build-Plan($root, $modName) {
             if (-not $packIt) { [void]$rows.Add((Map-Row $f.FullName $gamePath $mod "")); continue }
         }
         if ($anchor -lt 0 -and $KNOWN_PATHS.ContainsKey($n)) {
-            [void]$rows.Add((New-Row $f.FullName (Get-UpdateDest $mod $KNOWN_PATHS[$n]) "OVERLOADER" "Replaces the game's $n")); continue
+            $kn = $(if ($KEYED.Contains($KNOWN_PATHS[$n])) { "Combined with your game's $n - only its own cars/peds are changed or added" } else { "Replaces the game's $n" })
+            [void]$rows.Add((New-Row $f.FullName (Get-UpdateDest $mod $KNOWN_PATHS[$n]) "OVERLOADER" $kn)); continue
         }
         $gfxBase = ""
         foreach ($d in $gfxDirs.Keys) { if ($f.DirectoryName -eq $d -or $f.DirectoryName.StartsWith($d + [IO.Path]::DirectorySeparatorChar)) { $gfxBase = $d } }
@@ -1569,11 +1756,14 @@ function Get-ModChecks($root, $plan) {
     if ($shaders) { [void]$out.Add("Shader mod: most shader mods are older than Fusion Fix and can break it (for example invisible people). Fusion Fix's own shaders are always kept.") }
     elseif ($clash.Count -gt 0) { [void]$out.Add("Replaces files Fusion Fix has its own version of: " + (($clash | Select-Object -First 4) -join ", ") + $(if ($clash.Count -gt 4) { "..." } else { "" }) + ". If something looks wrong in the game, turn this mod off.") }
     # steps the readme wants done by hand (gta.dat / images.txt / default.dat lines are added by the app)
+    $doneLeafs = @($placed | Where-Object { $MERGE_TARGETS -contains (Get-GamePath ([string]$_.Dest)) } | ForEach-Object { [regex]::Escape((Split-Path ([string]$_.Dest) -Leaf)) } | Select-Object -Unique)
+    $doneData = $(if ($doneLeafs.Count -gt 0) { '(?i)' + ($doneLeafs -join '|') } else { "" })
     $hand = @()
     foreach ($l in $readme) {
         $t = ([string]$l).Trim()
         if ($t.Length -lt 8 -or $t.Length -gt 300) { continue }
         if ($t -match '(?i)gta\.dat|images\.txt|default\.dat') { continue }
+        if ($doneData -and $t -match $doneData) { continue }
         if ($t -match '(?i)\badd (this|these|the following)\b.*\blines?\b|\b(open|edit)\b.*\.(ini|cfg|txt|xml|dat|ide|meta)\b|\breplace the line\b|\bchange the value\b|\bat the (bottom|end|top) of (your|the)\b') { $hand += $(if ($t.Length -gt 120) { $t.Substring(0, 117) + "..." } else { $t }) }
     }
     if ($hand.Count -gt 0) { [void]$out.Add("The readme asks you to do something by hand. The app can't do that for you:`n     - " + (($hand | Select-Object -First 3) -join "`n     - ")) }
@@ -3247,7 +3437,7 @@ function Show-Plan {
     foreach ($row in $script:Plan) {
         $it = New-Object System.Windows.Forms.ListViewItem([IO.Path]::GetFileName($row.Source))
         $dest = $row.Dest; if (-not $dest) { $dest = "-" }
-        $kind = switch ($row.Kind) { "OVERLOADER" { "Game file" } "SCRIPT" { "Script" } "GAME FOLDER" { "Plugin" } "IMG" { "Packed model" } "ARCHIVE" { "Into archive" } "CORE" { "Fusion Fix" } "GRAPHICS" { "Graphics" } "MANUAL" { "Needs you" } "SKIP" { "Skipped" } "PREVIEW" { "Preview" } default { $row.Kind } }
+        $kind = switch ($row.Kind) { "OVERLOADER" { "Game file" } "SCRIPT" { "Script" } "GAME FOLDER" { "Plugin" } "IMG" { "Packed model" } "ARCHIVE" { "Into archive" } "CORE" { "Fusion Fix" } "GRAPHICS" { "Graphics" } "MANUAL" { "Needs you" } "SKIP" { "Skipped" } "PREVIEW" { "Preview" } "DATA LINES" { "Adds lines" } default { $row.Kind } }
         [void]$it.SubItems.Add($dest); [void]$it.SubItems.Add($kind); [void]$it.SubItems.Add($row.Note)
         if ($row.Kind -eq "MANUAL") { $it.ForeColor = $C_AMBER; $manual++ }
         elseif ($row.Kind -eq "SKIP") { $it.ForeColor = $C_DIM; $skip++ }
@@ -4570,6 +4760,7 @@ function Set-Game($path) {
         Repair-ImgArchives
         try { Rename-OldImgs } catch { }
         try { Move-DataFiles } catch { }
+        try { Move-KeyedData } catch { }
         # put back any mod file that went missing from the game folder
         try { $mm = @(Load-Db | Where-Object { Test-InLibrary $_ }); if ($mm.Count -gt 0) { Sync-Files (Get-AllModFiles $mm) @(Load-Db) } } catch { }
         try { Update-ArchivesIfStale } catch { }
