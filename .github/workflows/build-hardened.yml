@@ -14,17 +14,35 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build
+      - name: Extract hardened source
+        shell: powershell
+        run: |
+          $zip = Get-ChildItem -Path . -Filter "LibertyCityModLoaderIV-hardened-source-v4.zip" | Select-Object -First 1
+          if (-not $zip) {
+            Write-Error "Hardened source ZIP was not found."
+            exit 1
+          }
+
+          Expand-Archive -Path $zip.FullName -DestinationPath "$PWD\hardened" -Force
+
+      - name: Build hardened application
         shell: cmd
         run: |
-          BUILD-HARDENED.bat
+          cd hardened\LibertyCityModLoaderIV-source-hardened
+          call BUILD-HARDENED.bat
 
       - name: Package build
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release
-          Copy-Item "Liberty City Mod Loader IV.exe" release/ -ErrorAction Stop
-          Copy-Item "LibertyUI.dll" release/ -ErrorAction Stop
+
+          Copy-Item `
+            "hardened\LibertyCityModLoaderIV-source-hardened\Liberty City Mod Loader IV.exe" `
+            "release\"
+
+          Copy-Item `
+            "hardened\LibertyCityModLoaderIV-source-hardened\app\LibertyUI.dll" `
+            "release\"
 
       - name: Upload hardened build
         uses: actions/upload-artifact@v4
