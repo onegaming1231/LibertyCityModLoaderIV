@@ -53,6 +53,20 @@ Drop a .zip .rar .7z .oiv or a folder - the app shows every file and where it go
 2. Open Liberty City Mod Loader IV.exe
 3. Done!
 
+## Important: Windows antivirus false positives
+
+This project ships a Windows executable, and some antivirus products may flag an unsigned build as suspicious even when the software is legitimate. This is a common false-positive issue for new or unsigned Windows apps.
+
+To keep things safe and transparent:
+
+- The source code remains in the repository and is the primary reference for the project.
+- Official builds should be downloaded only from the GitHub Releases page, not from random files stored in the repository root.
+- Every release should be code-signed before publishing.
+- Each release should include a SHA256 checksum for users to verify the file.
+- Users should submit the file to VirusTotal if they see a warning and confirm the project is legitimate.
+
+For step-by-step release guidance, see `docs/verified-releases.md`.
+
 ## How to Use
 
 **Install a mod**
