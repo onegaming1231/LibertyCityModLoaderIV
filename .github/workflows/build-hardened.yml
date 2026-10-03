@@ -1,59 +1,57 @@
 name: Build Hardened Windows Release
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: windows-2022
+  build:
+    runs-on: windows-2022
 
-```
-steps:
-  - name: Checkout source
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-  - name: Setup MSBuild
-    uses: microsoft/setup-msbuild@v2
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
 
-  - name: Extract hardened source
-    shell: powershell
-    run: |
-      $zip = Get-ChildItem -Path . -Filter "LibertyCityModLoaderIV-hardened-source-v4.zip" | Select-Object -First 1
-      if (-not $zip) {
-        Write-Error "Hardened source ZIP was not found."
-        exit 1
-      }
+      - name: Extract hardened source
+        shell: powershell
+        run: |
+          $zip = Get-ChildItem -Path . -Filter "LibertyCityModLoaderIV-hardened-source-v4.zip" | Select-Object -First 1
+          if (-not $zip) {
+            Write-Error "Hardened source ZIP was not found."
+            exit 1
+          }
 
-      Expand-Archive -Path $zip.FullName -DestinationPath "$PWD\hardened" -Force
+          Expand-Archive -Path $zip.FullName -DestinationPath "$PWD\hardened" -Force
 
-  - name: Build hardened application
-    shell: cmd
-    run: |
-      cd hardened\LibertyCityModLoaderIV-source-hardened
-      call BUILD-HARDENED.bat
+      - name: Build hardened application
+        shell: cmd
+        run: |
+          cd hardened\LibertyCityModLoaderIV-source-hardened
+          call BUILD-HARDENED.bat
 
-  - name: Package build
-    shell: powershell
-    run: |
-      New-Item -ItemType Directory -Force -Path release
+      - name: Package build
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path release
 
-      Copy-Item `
-        "hardened\LibertyCityModLoaderIV-source-hardened\Liberty City Mod Loader IV.exe" `
-        "release\"
+          Copy-Item `
+            "hardened\LibertyCityModLoaderIV-source-hardened\Liberty City Mod Loader IV.exe" `
+            "release\"
 
-      New-Item -ItemType Directory -Force -Path "release\app"
+          New-Item -ItemType Directory -Force -Path "release\app"
 
-      Copy-Item `
-        "hardened\LibertyCityModLoaderIV-source-hardened\Liberty City Mod Loader IV.exe" `
-        "release\"
+          Copy-Item `
+            "hardened\LibertyCityModLoaderIV-source-hardened\Liberty City Mod Loader IV.exe" `
+            "release\"
 
-      Copy-Item `
-        "hardened\LibertyCityModLoaderIV-source-hardened\app\LibertyUI.dll" `
-        "release\app\"
+          Copy-Item `
+            "hardened\LibertyCityModLoaderIV-source-hardened\app\LibertyUI.dll" `
+            "release\app\"
 
-  - name: Upload hardened build
-    uses: actions/upload-artifact@v4
-    with:
-      name: LibertyCityModLoaderIV-hardened
-      path: release/
-```
+      - name: Upload hardened build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LibertyCityModLoaderIV-hardened
+          path: release/
