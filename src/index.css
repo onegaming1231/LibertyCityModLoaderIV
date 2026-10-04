@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@source "./";
+
+@font-face {
+  font-family: 'Bebas Neue';
+  src: url('./fonts/BebasNeue-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('./fonts/Barlow-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('./fonts/Barlow-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('./fonts/BarlowCondensed-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-bebas: 'Bebas Neue', Impact, sans-serif;
+  --font-barlow: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  --font-barlow-condensed: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+}
+
+body {
+  font-family: var(--font-barlow);
+  background-color: #111214;
+  color: #e6e6e6;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+.font-bebas {
+  font-family: var(--font-bebas);
+}
+
+.font-barlow {
+  font-family: var(--font-barlow);
+}
+
+.font-barlow-condensed {
+  font-family: var(--font-barlow-condensed);
+}
+
+/* Custom scrollbars matching GTA IV dark style */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(17, 18, 20, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: #363a44;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #505565;
+}

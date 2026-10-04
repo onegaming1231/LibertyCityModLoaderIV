@@ -1,119 +1,103 @@
 # Liberty City Mod Loader IV
 
-A mod manager made for GTA IV: The Complete Edition.
+A mod manager made for **GTA IV: The Complete Edition**.
 Install mods in one click, turn them off and on anytime, and never break your game again.
 
-## Description
+**[Download the latest version](https://github.com/onegaming1231/LibertyCityModLoaderIV/releases)** · Version 1.0 · made by Feen Aka AnnaEnxo
 
-Modding GTA IV usually means copying files by hand, replacing game files, editing gta.dat and hoping nothing breaks.
+---
+
+## What it does
+
+Modding GTA IV usually means copying files by hand, replacing game files, editing `gta.dat` and hoping nothing breaks.
 Liberty City Mod Loader IV does all of that for you. It reads the mod, shows you where every file will go,
-and puts it in the right place. Your original game files are never changed - they are always kept safe.
+and puts it in the right place. **Your original game files are never changed.**
 
-## Main Features
+## Features
 
-### Get Mods
-Built-in browser with the best GTA IV mod sites (LibertyCity, Nexus, GTAinside, ModDB, GTAForums, LCPDFR).
-Works with Nexus "Mod Manager Download" buttons, and can watch your Downloads folder.
+**Get Mods**
+- Built-in browser with the best GTA IV mod sites (LibertyCity, Nexus, GTAinside, ModDB, GTAForums, LCPDFR)
+- Works with Nexus "Mod Manager Download" buttons, and can watch your Downloads folder
 
-### Install
-Drop a .zip .rar .7z .oiv or a folder - the app shows every file and where it goes before anything is copied.
+**Install**
+- Drop a `.zip` `.rar` `.7z` `.oiv` or a folder - see every file and where it goes before anything is copied
 - Loose models and textures are packed for you automatically
-- Clothes and faces for Niko go into playerped.rpf (a modded copy - the original stays untouched)
+- Clothes and faces for Niko go into a modded copy of playerped.rpf (the original stays untouched)
 - gta.dat, images.txt and default.dat lines are added for you, never overwritten
-- New add-on characters and cars are added to the Liberty's Legacy trainer list by themselves
-- A "Before you install" check warns about missing tools (ScriptHookDotNet, ZolikaPatch...), old mods that can cause problems, and steps the readme wants done by hand
+- Car lines (handling, vehicles.ide, carcols, cargrp) are added for you
+- New add-on characters and cars are added to the Liberty's Legacy trainer list
+- A "Before you install" check warns about missing tools and steps the readme wants done by hand
+- **New:** press **3D** on a model file to see it before you install
 
-### My Mods
-- Tick = on, untick = off. Nothing is deleted, turn mods back on anytime
-- Drag mods up and down - the lower one wins when two mods change the same file
-- Check for Conflicts - finds files replaced twice and mods that fight each other
-- Updates - checks Nexus for newer versions of your mods
-- Share - save your mod list and send it to a friend
-- Find Other Mods - finds mods you installed by hand and adds them to the list
+**My Mods**
+- Turn any mod on or off - nothing is deleted
+- Move mods up and down - the lower one wins when two mods change the same file
+- **New: Texture mixing** - two mods that change different textures in the same file both work
+- Check for Conflicts, Nexus update checks, share your mod list, find mods you installed by hand
 
-### Something wrong in the game?
-- Play Without Mods - one click turns all mods off to test the plain game, one click brings them all back
-- Find the Broken Mod - turns mods off in groups and asks you a few questions until it finds the one that breaks your game
+**Game Archives**
+- Look inside `.img` and `.rpf` files, take files out, replace them or add new ones (as a mod you can turn off)
+- See, save and replace the textures in `.wtd` files
+- **New: 3D View** - see cars (`.wft`), characters (`.wdd`) and objects (`.wdr`) in 3D with their textures
 
-### Settings
-- Quick links to get the essential tools (ScriptHookDotNet, DLSS-IV and more)
-- Your own background: video, GIF or picture (live wallpapers supported), plus a built-in music player
+**Something wrong in the game?**
+- **Play Without Mods** - test the plain game, then bring all mods back with one click
+- **Find the Broken Mod** - finds the mod that breaks your game, step by step
+- **Clean Up** - removes files left behind by old mods
+
+**Settings**
+- Quick links to essential tools (ScriptHookDotNet, DLSS-IV and more)
+- Your own background (video, GIF or picture) and a music player (your music or YouTube Music)
 
 ## Requirements
 
 - GTA IV: The Complete Edition (1.2.0.59)
-- Fusion Fix
-- Windows 10 or 11
-- Optional: 7-Zip or WinRAR for .7z and .rar mods
+- [Fusion Fix](https://github.com/ThirteenAG/GTAIV.EFLC.FusionFix)
+- Windows 10 or 11 (64-bit)
+- Optional: 7-Zip or WinRAR for `.7z` and `.rar` mods
 - Optional: a free Nexus Mods API key for update checks
 
-## Installation
+## How to install
 
-1. Extract the zip anywhere
-2. Open Liberty City Mod Loader IV.exe
-3. Done!
+1. Download the zip from [Releases](https://github.com/onegaming1231/LibertyCityModLoaderIV/releases)
+2. Unzip it anywhere (not inside the game folder)
+3. Open **Liberty City Mod Loader IV.exe**
+4. The app finds GTA IV by itself. Go to Install, drop in a mod, press Install
 
-## Important: Windows antivirus false positives
+## Can't do
 
-This project ships a Windows executable, and some antivirus products may flag an unsigned build as suspicious even when the software is legitimate. This is a common false-positive issue for new or unsigned Windows apps.
+- Graphics mods (ENB, ReShade, RTX Remix) - install those by hand
+- Mods with their own setup program (`.exe`) - run them yourself
 
-To keep things safe and transparent:
+## Safe?
 
-- The source code remains in the repository and is the primary reference for the project.
-- Official builds should be downloaded only from the GitHub Releases page, not from random files stored in the repository root.
-- Every release should be code-signed before publishing.
-- Each release should include a SHA256 checksum for users to verify the file.
-- Users should submit the file to VirusTotal if they see a warning and confirm the project is legitimate.
+Scanned on VirusTotal: **0 / 64**. The `.exe` and `.dll` files are the official Electron files;
+only the name, icon, version info and Electron security settings (fuses) are changed. All app code is in this repository.
 
-For step-by-step release guidance, see `docs/verified-releases.md`.
+## Build it yourself
 
-## How to Use
+The app is [Electron](https://www.electronjs.org/) + a React window + an engine in plain JavaScript (`electron/engine`, no extra packages).
 
-**Install a mod**
-Download a mod from any website. Drag the file onto the app, or open it with Choose File on the Install page.
-The app shows you where every file will go. Press Install and the mod is in your game.
+1. Install [Node.js](https://nodejs.org/) (LTS)
+2. `npm install`
+3. `node scripts/build.cjs` (needs the Tailwind CLI: `npx @tailwindcss/cli`, or set `TAILWIND=<path>`)
+4. Run it: `npx electron .`
+5. Make the app folder from the official Electron zip (`electron-v44.5.1-win32-x64.zip` from [Electron releases](https://github.com/electron/electron/releases)):
+   `node scripts/package.cjs electron-v44.5.1-win32-x64.zip out\LibertyCityModLoaderIV win`
 
-**Download mods inside the app**
-Go to Get Mods and pick a website. Find a mod and press its download button.
-The mod opens in the Install page by itself. Press Install.
+Tests: `test/fixture.cjs` makes a fake GTA IV folder, `test/e2e.cjs` clicks through the app.
 
-**Turn a mod off or on**
-Go to My Mods. Untick a mod to turn it off. Tick it again to turn it back on.
-Nothing is deleted, so you can switch mods anytime.
+## Credits
 
-**Remove a mod**
-Go to My Mods, click the mod and press Uninstall.
-Your original game files are put back.
-
-**When two mods change the same thing**
-Drag the mod you like more to the bottom of the list in My Mods.
-The mod at the bottom always wins.
-
-**If the game has a problem**
-Press Play Without Mods to test the game with all mods off. Press it again to bring them all back.
-Or press Find the Broken Mod and answer a few questions. The app finds the mod that causes the problem.
-
-## Limitations
-
-- Graphics mods (ENB, ReShade, RTX Remix) are not installed - install those by hand
-- Mods with their own setup program (.exe) - run them yourself
-- Steps the readme asks you to type by hand (like changing a number in handling.dat) can't be done for you - the app shows you those lines
-- Very old mods can still cause problems in the game
-- Made and tested for the Complete Edition 1.2.0.59 only
-
-## Shout Outs
-
-- SparkIV - by Aru, GitHub version by ahmed605 - texture tool code used under the GPL v3 license
-- Fusion Fix - by ThirteenAG and contributors
-- ScriptHookDotNet - by HazardX, Complete Edition version by Priler
-- DLSS-IV - by ChunkLeChuck
-- Liberty's Legacy Trainer - by konstantinos96b (add-on lists support)
-- Background video - "Lola Del Rio" live wallpaper from MoeWalls, art by Rockstar Games
-- Fonts - Bebas Neue (Dharma Type) and Barlow (Jeremy Tribby), SIL Open Font License
-- Thanks to everyone in the GTA IV modding community who keeps this game alive
+- **SparkIV** - by Aru, GitHub version by ahmed605 - texture and model code used under the GPL v3 license
+- **Fusion Fix** - by ThirteenAG and contributors
+- **ScriptHookDotNet** - by HazardX, Complete Edition version by Priler
+- **DLSS-IV** - by ChunkLeChuck
+- **Liberty's Legacy Trainer** - by konstantinos96b
+- **Electron** - the app frame
+- **Background video** - "Lola Del Rio" live wallpaper from MoeWalls, art by Rockstar Games
+- **Fonts** - Bebas Neue (Dharma Type) and Barlow (Jeremy Tribby), SIL Open Font License
 
 ## License
 
-GNU GPL v3 - see app/LICENSE-GPL3.txt. The full source code is in the app folder.
-
-Liberty City Mod Loader IV 1.0 - made by Feen Aka AnnaEnxo
+GPL v3 - see [LICENSE-GPL3.txt](LICENSE-GPL3.txt).

@@ -1,0 +1,30 @@
+const fs=require('fs'),path=require('path'); const C=require('../electron/engine/core.cjs'), P=require('../electron/engine/plan.cjs'), F=require('../electron/engine/formats.cjs');
+const G=path.join(__dirname,'game2'); fs.rmSync(G,{recursive:true,force:true});
+const w=(p,d)=>{p=path.join(G,p.replace(/\\/g,'/'));fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,d);};
+C.E.host.status=(t,c)=>console.log('  ['+c+'] '+t); C.E.host.ask=async(m,t,b)=>{console.log('  ASK: '+t+' -> '+b[0]);return b[0];};
+w('GTAIV.exe','x'); w('plugins\\GTAIV.EFLC.FusionFix.asi','x'); w('dinput8.dll','x');
+w('common\\data\\handling.dat','ADMIRAL 1500.0 2.0 80 0.0 0.0 -0.1 0.0 5 0.85 0.75 140.0\n');
+w('common\\data\\vehicles.ide','cars\nadmiral, admiral, car, ADMIRAL, ADMIRAL, VEH@STD, NULL, 10, 1\nend\n');
+w('common\\data\\carcols.dat','col\n0,0,0\nend\ncar4\nadmiral, 1,1,1,1\nend\n');
+w('common\\data\\cargrp.dat','admiral, # POPCYCLE_GROUP_ONLY_IN_NATIVE_ZONE\nadmiral, # POPCYCLE_GROUP_AIRPORT_WORKERS\n');
+w("Liberty's Legacy\\Lists\\addon_vehicle_models.txt",'');
+C.setGame(G);
+// a mod folder like the user's Coach mod
+const M=path.join(__dirname,'coachmod'); fs.rmSync(M,{recursive:true,force:true}); fs.mkdirSync(M);
+for (const f of ['coach.wft','coach.wtd','data.txt']) fs.copyFileSync('/mnt/user-data/uploads/'+f, path.join(M,f));
+fs.mkdirSync(path.join(M,'scripts')); fs.writeFileSync(path.join(M,'scripts','CoachDriver.net.dll'),'MZ fake'); fs.writeFileSync(path.join(M,'scripts','CoachDriver.ini'),'[a]\nx=1\n');
+fs.writeFileSync(path.join(M,'readme.txt'),'Requires ScriptHookDotNet.\n'); 
+(async()=>{
+ const plan=P.loadMod(M); console.log('name:',plan.modName,'| warning:',plan.warning); 
+ for(const r of plan.rows) console.log(' ',r.Kind.padEnd(11),path.basename(r.Source).padEnd(22),'->',r.Dest||'-','|',r.Note);
+ console.log('checks:',plan.checks);
+ const res=await P.installPlan(plan); console.log('install:',res);
+ console.log('vehicles.ide:\n'+fs.readFileSync(path.join(G,'update/common/data/vehicles.ide'),'latin1'));
+ console.log('cargrp:\n'+fs.readFileSync(path.join(G,'update/common/data/cargrp.dat'),'latin1'));
+ console.log('carcols:\n'+fs.readFileSync(path.join(G,'update/common/data/carcols.dat'),'latin1'));
+ console.log('trainer list:',JSON.stringify(fs.readFileSync(path.join(G,"Liberty's Legacy/Lists/addon_vehicle_models.txt"),'utf8')));
+ console.log('img:',F.img.list(path.join(G,'update/coachmod/coachmod.img'),null));
+ P.disableMod('coachmod'); console.log('off -> data files:',fs.existsSync(path.join(G,'update/common/data/vehicles.ide')), 'trainer:',JSON.stringify(fs.readFileSync(path.join(G,"Liberty's Legacy/Lists/addon_vehicle_models.txt"),'utf8')));
+ await P.enableMod('coachmod'); console.log('on -> data files:',fs.existsSync(path.join(G,'update/common/data/vehicles.ide')));
+ P.uninstallMod('coachmod'); console.log('uninstalled -> files left in update:', fs.existsSync(path.join(G,'update'))?require('child_process').execSync('find '+path.join(G,'update')+' -type f').toString():'none');
+})().catch(e=>console.error('ERR',e));

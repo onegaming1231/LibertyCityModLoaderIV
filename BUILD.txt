@@ -1,0 +1,15 @@
+HOW TO BUILD LIBERTY CITY MOD LOADER IV (new version)
+
+The app is Electron (a known app frame) + a React window + an engine in plain JavaScript.
+The engine (electron/engine) does all the work: install, on/off, data lines, texture mixing,
+.img/.rpf/.wtd files. It uses only Node's own tools - no extra packages.
+
+1. Install Node.js (LTS) from nodejs.org.
+2. In this folder: npm install
+3. Build the window:   node scripts/build.cjs        (needs the Tailwind CLI: npx @tailwindcss/cli, or set TAILWIND=<path>)
+4. Run it:             npx electron .
+5. Make the app folder from the official Electron zip (github.com/electron/electron/releases,
+   electron-v44.5.1-win32-x64.zip):
+                       node scripts/package.cjs electron-v44.5.1-win32-x64.zip out\LibertyCityModLoaderIV win
+
+Tests: test/fixture.cjs makes a fake GTA IV folder, test/e2e.cjs clicks through the app.
