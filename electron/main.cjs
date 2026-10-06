@@ -44,6 +44,10 @@ function startEngine() {
           const { op, value: v } = msg.args;
           if (op === 'encrypt') value = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v).toString('base64') : 'plain:' + Buffer.from(v).toString('base64');
           else value = String(v).startsWith('plain:') ? Buffer.from(String(v).slice(6), 'base64').toString() : safeStorage.decryptString(Buffer.from(v, 'base64'));
+        } else if (msg.kind === 'open') {
+          // only the Nexus Mods login page is opened this way
+          const u = String(msg.args.url || '');
+          if (/^https:\/\/users\.nexusmods\.com\/oauth\/authorize\?/.test(u)) { await shell.openExternal(u); value = true; }
         } else value = await askWindow(msg.kind, msg.args);
       } catch (e) { value = null; }
       engine.postMessage({ t: 'host-reply', id: msg.id, value });

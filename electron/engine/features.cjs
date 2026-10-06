@@ -610,29 +610,113 @@ async function importModList(file) {
 
 // ================================================================ settings (per game folder) and Nexus
 const settingsPath = () => J(C.dataDir(), 'settings.json');
-function loadSettings() { const s = { NexusKey: '', WatchDownloads: true, OldNxm: '', NexusKeyV2: '' }; if (E.game) Object.assign(s, C.readJson(settingsPath(), {}) || {}); return s; }
+function loadSettings() { const s = { WatchDownloads: true, OldNxm: '', NexusLogin: '' }; if (E.game) Object.assign(s, C.readJson(settingsPath(), {}) || {}); return s; }
 function saveSettings(s) { if (E.game) C.writeJson(settingsPath(), s); }
-// the key is stored encrypted with your Windows account (Electron safeStorage = Windows DPAPI)
-async function setNexusKey(plain) {
-  const s = loadSettings();
-  s.NexusKeyV2 = plain ? await E.host.secret('encrypt', plain) : '';
-  s.NexusKey = '';    // an old key from the PowerShell version can't be read here
+// ---- Nexus Mods login (OAuth 2 with PKCE - the way Nexus asks apps to sign in; no API keys)
+// The login and refresh tokens are stored encrypted with your Windows account (Electron safeStorage = Windows DPAPI).
+const crypto = require('crypto');
+const OAUTH_URL = process.env.LCML_TEST_OAUTH_URL || 'https://users.nexusmods.com/oauth';   // (the test setting is only for the automatic tests)
+const NEXUS_API = process.env.LCML_TEST_NEXUS_API || 'https://api.nexusmods.com/v1/';
+// the app's id, given by Nexus Mods for this app
+const OAUTH_CLIENT_ID = process.env.LCML_OAUTH_CLIENT_ID || 'liberty_city_mod_loader_iv';
+const APP_HEADERS = { 'Application-Name': 'LibertyCityModLoaderIV', 'Application-Version': '1.0' };
+const b64url = (b) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function jwtPayload(t) { try { return JSON.parse(Buffer.from(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); } catch (e) { return {}; } }
+// old API keys (from earlier versions) are not used any more - they are removed
+function dropOldKeys(s) { if (s.NexusKey || s.NexusKeyV2) { delete s.NexusKey; delete s.NexusKeyV2; s.HadOldKey = true; return true; } return false; }
+async function saveTokens(tok) {
+  const s = loadSettings(); dropOldKeys(s);
+  s.NexusLogin = tok ? await E.host.secret('encrypt', JSON.stringify({ access: tok.access_token, refresh: tok.refresh_token })) : '';
   saveSettings(s);
 }
-async function getNexusKey() { const s = loadSettings(); if (!s.NexusKeyV2) return ''; try { return (await E.host.secret('decrypt', s.NexusKeyV2)) || ''; } catch (e) { return ''; } }
-const APP_HEADERS = { 'Application-Name': 'LibertyCityModLoaderIV', 'Application-Version': '1.0' };
-async function nexus(p) {
-  const key = await getNexusKey();
-  if (!key) throw friendly('Add your Nexus API key in Settings first.');
-  const res = await fetch('https://api.nexusmods.com/v1/' + p, { headers: Object.assign({ apikey: key, Accept: 'application/json' }, APP_HEADERS) });
+async function loadTokens() {
+  const s = loadSettings(); if (dropOldKeys(s)) saveSettings(s);
+  if (!s.NexusLogin) return null;
+  try { const t = JSON.parse((await E.host.secret('decrypt', s.NexusLogin)) || 'null'); return t && t.access ? t : null; } catch (e) { return null; }
+}
+async function postForm(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' }, APP_HEADERS), body: new URLSearchParams(body).toString() });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = friendly('Nexus login: ' + (j.error_description || j.error || res.status + ' ' + res.statusText)); e.code = j.error; throw e; }
+  return j;
+}
+let refreshing = null;
+// a working access token (renewed by itself shortly before it runs out); '' when not logged in
+async function accessToken(force) {
+  const t = await loadTokens(); if (!t) return '';
+  const exp = jwtPayload(t.access).exp;
+  if (!force && (!exp || exp * 1000 - Date.now() > 60000)) return t.access;
+  if (!t.refresh) return t.access;
+  if (!refreshing) refreshing = (async () => {
+    try { const r = await postForm(OAUTH_URL + '/token', { grant_type: 'refresh_token', client_id: OAUTH_CLIENT_ID, refresh_token: t.refresh }); await saveTokens(r); return r.access_token; }
+    catch (e) { if (e.code === 'invalid_grant') { await saveTokens(null); return ''; } throw e; }
+    finally { refreshing = null; }
+  })();
+  return refreshing;
+}
+function resultPage(res, ok, msg) {
+  res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end('<!doctype html><html><head><title>Liberty City Mod Loader IV</title></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#111214;color:#e9edf3;font-family:Segoe UI,Arial,sans-serif;text-align:center">'
+    + '<div><h1 style="font-weight:600;color:' + (ok ? '#E8A33D' : '#f87171') + '">' + (ok ? 'You are logged in!' : 'Login did not work') + '</h1><p style="font-size:17px">' + msg + '</p></div></body></html>');
+}
+let login = null;
+// opens the Nexus Mods login page in your browser and waits for you to say yes
+function nexusLogin() {
+  if (login) login.cancel('A new login was started.');
+  const http = require('http');
+  const verifier = b64url(crypto.randomBytes(48));
+  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+  const state = b64url(crypto.randomBytes(16));
+  return new Promise((resolve, reject) => {
+    let redirect = '', finished = false;
+    const server = http.createServer(async (req, res) => {
+      const u = new URL(req.url, 'http://127.0.0.1');
+      const code = u.searchParams.get('code'), err = u.searchParams.get('error');
+      if (!code && !err) { res.writeHead(404); res.end(); return; }
+      if (u.searchParams.get('state') !== state) { resultPage(res, false, 'This login link is old. Please press Log In again in the app.'); return; }
+      try {
+        if (err) throw friendly('Nexus said: ' + (u.searchParams.get('error_description') || err));
+        const tok = await postForm(OAUTH_URL + '/token', { grant_type: 'authorization_code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, code, code_verifier: verifier });
+        await saveTokens(tok);
+        resultPage(res, true, 'You can close this page and go back to Liberty City Mod Loader IV.');
+        done(); resolve(await nexusAccount());
+      } catch (e) { resultPage(res, false, 'Please go back to the app and try again.'); done(); reject(e); }
+    });
+    const timer = setTimeout(() => { done(); reject(friendly('The login took too long. Please press Log In again.')); }, 10 * 60000);
+    const done = () => { if (finished) return; finished = true; clearTimeout(timer); try { server.close(); } catch (e) { /* */ } login = null; };
+    login = { cancel: (why) => { done(); reject(friendly(why || 'Login cancelled.')); } };
+    server.on('error', (e) => { done(); reject(e); });
+    server.listen(0, '127.0.0.1', () => {
+      redirect = 'http://127.0.0.1:' + server.address().port;
+      const q = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, scope: 'openid profile email', state, code_challenge_method: 'S256', code_challenge: challenge });
+      E.host.open(OAUTH_URL + '/authorize?' + q.toString());
+      status('Log in on the Nexus Mods page that opened in your browser, then press Authorise.', 'dim');
+    });
+  });
+}
+function nexusLoginCancel() { if (login) login.cancel('Login cancelled.'); return true; }
+async function nexusLogout() {
+  await saveTokens(null);
+  const s = loadSettings(); delete s.HadOldKey; saveSettings(s);
+  status('Logged out of Nexus Mods.', 'dim'); return true;
+}
+async function nexus(p, retried) {
+  const token = await accessToken();
+  if (!token) throw friendly('Log in with your Nexus Mods account in Settings first.');
+  const res = await fetch(NEXUS_API + p, { headers: Object.assign({ Authorization: 'Bearer ' + token, Accept: 'application/json' }, APP_HEADERS) });
+  if (res.status === 401 && !retried) { if (await accessToken(true)) return nexus(p, true); throw friendly('Please log in to Nexus Mods again (Settings).'); }
   if (!res.ok) throw friendly('Nexus said: ' + res.status + ' ' + res.statusText);
   return res.json();
 }
 async function nexusAccount() {
-  const has = !!(await getNexusKey()); const old = !!loadSettings().NexusKey;
-  if (!has) return { connected: false, oldKey: old };
+  const t = await loadTokens(); const old = !!loadSettings().HadOldKey;
+  if (!t) return { connected: false, oldKey: old };
   try { const me = await nexus('users/validate.json'); return { connected: true, name: me.name, premium: !!me.is_premium }; }
-  catch (e) { return { connected: false, bad: true }; }
+  catch (e) {
+    const u = (jwtPayload(t.access).user) || {};
+    if (u.username && await loadTokens()) return { connected: true, name: u.username, premium: (u.membership_roles || []).includes('premium'), offline: true };
+    return { connected: false, bad: true };
+  }
 }
 function newNexusSource(modId, file, mod) {
   return { Site: 'Nexus', NexusId: String(modId), FileId: file ? String(file.file_id) : '', Version: file && file.version ? String(file.version) : (mod ? String(mod.version || '') : ''), Uploaded: file ? Number(file.uploaded_timestamp || 0) : 0, Url: 'https://www.nexusmods.com/' + P.NEXUS_GAME + '/mods/' + modId, Picture: mod ? String(mod.picture_url || '') : '' };
@@ -686,7 +770,7 @@ function findNexusSources(mods, extraDirs) {
   return changed;
 }
 async function checkUpdates(downloadsDir) {
-  if (!(await getNexusKey())) return { needKey: true };
+  if (!(await loadTokens())) return { needLogin: true };
   const mods = C.loadDb();
   const changed = findNexusSources(mods, downloadsDir ? [downloadsDir] : []);
   const nx = mods.filter(m => C.modSource(m) && C.modSource(m).NexusId);
@@ -844,6 +928,6 @@ module.exports = {
   startNoMods, stopTroubleshoot, startFindBroken, answerFindBroken, tsState, conflictCheck,
   findExternalMods, addFoundMods, clearFound, tidyFoundMods, findLeftovers, cleanLeftovers,
   listArchives, archiveFiles, findInGameArchives, takeOut, replacePlan, addFilesPlan, openModel, openTextures, texturePixels, replaceTexture, textureLevels, finishTextures, closeTextures,
-  exportModList, importModList, loadSettings, saveSettings, setNexusKey, getNexusKey, nexusAccount, nxmToDownload, nexusPageToDownload, checkUpdates, updateDownload, download,
+  exportModList, importModList, loadSettings, saveSettings, nexusLogin, nexusLoginCancel, nexusLogout, nexusAccount, nxmToDownload, nexusPageToDownload, checkUpdates, updateDownload, download,
   essentials, ffIniValue, setFFIniValue, bumpVehicleBudget, storage, clearDownloads, myMods,
 };

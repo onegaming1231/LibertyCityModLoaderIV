@@ -129,7 +129,7 @@ Turn them with the mouse, change the car paint, save a picture. Works in Game Ar
 | **4** | Go to **Install**, drop in a mod, press **Install**. Done! 🎉 |
 
 **You need:** GTA IV: The Complete Edition (1.2.0.59) · [Fusion Fix](https://github.com/ThirteenAG/GTAIV.EFLC.FusionFix) · Windows 10 or 11 (64-bit)<br>
-**Optional:** 7-Zip or WinRAR for `.7z` and `.rar` mods · a free Nexus Mods API key for update checks
+**Optional:** 7-Zip or WinRAR for `.7z` and `.rar` mods · log in with your Nexus Mods account in Settings for update checks
 
 <br>
 

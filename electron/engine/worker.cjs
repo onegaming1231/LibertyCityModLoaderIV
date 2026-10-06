@@ -21,6 +21,7 @@ E.host.ask = (message, title, buttons) => hostCall('ask', { message, title, butt
 E.host.image = (op, args) => hostCall('image', { op, args });
 E.host.trash = (p) => { send({ t: 'trash', path: p }); };
 E.host.secret = (op, value) => hostCall('secret', { op, value });
+E.host.open = (url) => hostCall('open', { url });
 
 // ---------------------------------------------------------------- finding the game
 function regValue(key, name) {
@@ -104,8 +105,10 @@ const API = {
   // sharing
   exportModList: X.exportModList, importModList: X.importModList,
   // nexus and downloads
-  settings: X.loadSettings, saveSettings: (s) => { const cur = X.loadSettings(); X.saveSettings(Object.assign(cur, s)); return true; },
-  setNexusKey: X.setNexusKey, nexusAccount: X.nexusAccount, nxmToDownload: X.nxmToDownload, nexusPageToDownload: X.nexusPageToDownload,
+  // the window never sees or changes the saved Nexus login
+  settings: () => { const s = X.loadSettings(); delete s.NexusLogin; return s; },
+  saveSettings: (s) => { const cur = X.loadSettings(); const x = Object.assign({}, s); delete x.NexusLogin; delete x.NexusKey; delete x.NexusKeyV2; X.saveSettings(Object.assign(cur, x)); return true; },
+  nexusLogin: X.nexusLogin, nexusLoginCancel: X.nexusLoginCancel, nexusLogout: X.nexusLogout, nexusAccount: X.nexusAccount, nxmToDownload: X.nxmToDownload, nexusPageToDownload: X.nexusPageToDownload,
   checkUpdates: () => X.checkUpdates(downloadsFolder()), updateDownload: X.updateDownload, download: X.download,
   nexusFromName: (n) => P.nexusFromName(n),
   // essentials

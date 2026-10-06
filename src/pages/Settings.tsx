@@ -24,7 +24,7 @@ export const Settings: React.FC = () => {
   const [watching, setWatching] = useState<string | false>(false);
   const [menu, setMenu] = useState(false);
   const [nxm, setNxm] = useState(false);
-  const [key, setKey] = useState('');
+  const [waiting, setWaiting] = useState(false);
   const [acc, setAcc] = useState<any>(null);
   const [store, setStore] = useState<any>(null);
   const load = async () => {
@@ -47,7 +47,15 @@ export const Settings: React.FC = () => {
     status(ok ? 'Vehicle budget set to ' + nw + '. Restart the game to see it.' : "Couldn't find VehicleBudget in the Fusion Fix settings.", ok ? 'green' : 'red'); await refresh();
   }
   async function setWatch(on: boolean) { await call('saveSettings', { WatchDownloads: on }); setWatching(await L.watch(on)); }
-  async function saveKey() { await run(() => call('setNexusKey', key.trim())); setKey(''); setAcc(await call('nexusAccount').catch(() => null)); }
+  // Nexus login: the Nexus page opens in your browser, you press Authorise, the app gets a login (no API key)
+  async function nexusLogin() {
+    setWaiting(true);
+    try { const a = await call('nexusLogin'); setAcc(a); status(a && a.connected ? 'Logged in to Nexus Mods as ' + a.name + '.' : 'Logged in to Nexus Mods.', 'green'); }
+    catch (e: any) { if (!/cancel/i.test(e.message || '')) status(e.message || 'The Nexus login did not work.', 'red'); }
+    finally { setWaiting(false); }
+  }
+  async function nexusCancel() { await call('nexusLoginCancel').catch(() => {}); setWaiting(false); status('Nexus login cancelled.', 'dim'); }
+  async function nexusLogout() { await call('nexusLogout').catch(() => {}); setAcc(await call('nexusAccount').catch(() => null)); }
   async function toggleNxm() {
     if (nxm) await L.reg.nxm(false);
     else { const a = await ask("Nexus 'Mod Manager Download' buttons will open this loader instead of Vortex or Mod Organizer (for every game on Nexus). You can switch back here any time.\n\nContinue?", 'Nexus Mods', ['Yes', 'No']); if (a !== 'Yes') return; await L.reg.nxm(true); }
@@ -107,14 +115,20 @@ export const Settings: React.FC = () => {
           </div>
         </Section>
 
-        <Section icon={<KeyRound className="w-5 h-5" />} title="Nexus Mods account (optional)" sub="Not needed to download - just log in inside Get Mods. A key adds one-click 'Mod Manager Download', update checks, and direct downloads for Premium.">
+        <Section icon={<KeyRound className="w-5 h-5" />} title="Nexus Mods account (optional)" sub="Not needed to download - just log in inside Get Mods. Logging in here adds one-click 'Mod Manager Download', update checks, and direct downloads for Premium. You log in on the Nexus Mods website - the app never sees your password.">
           <div className="flex flex-wrap gap-2 items-center">
-            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your API key" className="w-[360px] bg-[#111214] border border-[#363a44] rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#6ca4d8]" />
-            <Btn kind="primary" disabled={!key.trim() || !game} onClick={saveKey}>Save Key</Btn>
-            <button className="text-[13px] text-[#8cbbe6] hover:underline" onClick={() => L.shell.external('https://www.nexusmods.com/users/myaccount?tab=api')}>Where do I get a key?</button>
+            {acc?.connected
+              ? <Btn onClick={nexusLogout}>Log Out</Btn>
+              : waiting
+                ? <><Btn kind="primary" disabled>Waiting for you to log in...</Btn><Btn onClick={nexusCancel}>Cancel</Btn></>
+                : <Btn kind="primary" disabled={!game} onClick={nexusLogin}>Log In with Nexus Mods</Btn>}
           </div>
           <p className={`text-[14px] font-semibold mt-3 ${acc?.connected ? 'text-emerald-400' : acc?.bad ? 'text-red-400' : 'text-zinc-400'}`}>
-            {acc?.connected ? 'Connected as ' + acc.name + (acc.premium ? ' (Premium)' : ' (Free)') : acc?.bad ? 'Key not accepted - check it' : acc?.oldKey ? 'Please paste your key again (the new version stores it a new safe way).' : 'No key saved'}
+            {acc?.connected ? 'Logged in as ' + acc.name + (acc.premium ? ' (Premium)' : ' (Free)')
+              : waiting ? 'A Nexus Mods page opened in your browser. Log in there and press Authorise.'
+              : acc?.bad ? 'Your Nexus login ran out - please log in again.'
+              : acc?.oldKey ? 'API keys are not used any more. Please press Log In with Nexus Mods.'
+              : 'Not logged in'}
           </p>
           <div className="mt-3"><Btn onClick={toggleNxm}>{nxm ? 'Stop Handling Nexus Download Buttons' : "Handle 'Mod Manager Download' Buttons"}</Btn></div>
         </Section>

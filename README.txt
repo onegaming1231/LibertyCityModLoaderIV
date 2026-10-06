@@ -11,7 +11,8 @@ HOW TO START
 COMING FROM THE OLD VERSION?
   Delete the old app folder first, then extract this one.
   Your mods stay as they are: My Mods, on/off and order all carry over.
-  Only your Nexus API key must be pasted again (Settings).
+  For Nexus update checks, log in again with Settings > Log In with Nexus Mods
+  (API keys are not used any more).
 
 WHAT IT DOES
   - Get Mods: mod sites inside the app. Press a Download button and

@@ -45,7 +45,7 @@ export const MyMods: React.FC = () => {
   async function updates() {
     const r = await run(() => call('checkUpdates'), 'Checking for updates...');
     if (!r) return;
-    if (r.needKey) { await ask('To check for updates, add your free Nexus Mods API key first (Settings > Nexus Mods account).', 'Updates', ['OK']); return; }
+    if (r.needLogin) { await ask('To check for updates, log in with your Nexus Mods account first (Settings > Nexus Mods account > Log In with Nexus Mods).', 'Updates', ['OK']); return; }
     if (r.none) { await ask("None of your mods are linked to Nexus yet.\n\nMods you download through the app (or with Nexus' 'Mod Manager Download' button) are linked by themselves. Then they can be checked for updates.", 'Updates', ['OK']); return; }
     await refresh();
     if (!r.found.length) return;
