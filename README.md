@@ -53,7 +53,7 @@ Drop a **.zip .rar .7z .oiv** or a folder. The app shows where every file goes, 
 Every mod in one list.
 - **Tick** = on, **untick** = off. Nothing is deleted
 - The mod **lower** in the list wins
-- Updates from Nexus, share your list, find mods you installed by hand
+- Update checks from Nexus (log in with your Nexus account - no API key), share your list, find mods you installed by hand
 
 <img src="docs/screens/my-mods.jpg" alt="My Mods">
 
