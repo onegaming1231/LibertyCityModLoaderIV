@@ -688,7 +688,7 @@ function nexusLogin() {
     server.on('error', (e) => { done(); reject(e); });
     server.listen(0, '127.0.0.1', () => {
       redirect = 'http://127.0.0.1:' + server.address().port;
-      const q = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, scope: 'openid profile email', state, code_challenge_method: 'S256', code_challenge: challenge });
+      const q = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, scope: 'openid public', state, code_challenge_method: 'S256', code_challenge: challenge });
       E.host.open(OAUTH_URL + '/authorize?' + q.toString());
       status('Log in on the Nexus Mods page that opened in your browser, then press Authorise.', 'dim');
     });
