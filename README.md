@@ -6,7 +6,7 @@
 
 <br>
 
-<a href="https://github.com/onegaming1231/LibertyCityModLoaderIV/releases"><img src="https://img.shields.io/badge/version-1.0-E8A33D?style=for-the-badge" alt="Version 1.0"></a>
+<a href="https://github.com/onegaming1231/LibertyCityModLoaderIV/releases"><img src="https://img.shields.io/badge/version-1.0%20Update%201-E8A33D?style=for-the-badge" alt="Version 1.0 Update 1"></a>
 <img src="https://img.shields.io/badge/GTA%20IV-Complete%20Edition-6CA4D8?style=for-the-badge" alt="GTA IV Complete Edition">
 <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10 and 11">
 <img src="https://img.shields.io/badge/VirusTotal-0%20%2F%2064-2ea44f?style=for-the-badge&logo=virustotal&logoColor=white" alt="VirusTotal 0 of 64">
@@ -32,6 +32,10 @@ Your original game files are **never changed**.
 
 <br>
 
+<img src="docs/whats-new.svg" alt="What's new in Update 1" width="100%">
+
+<br>
+
 <img src="docs/title-features.svg" alt="Features" width="460">
 
 <table>
@@ -40,6 +44,9 @@ Your original game files are **never changed**.
 
 ### 📦 Install in one click
 Drop a **.zip .rar .7z .oiv** or a folder. The app shows where every file goes, then puts it there.
+- **New:** smart file reader - looks inside files to find where they go, even with no folders
+- Opens `.oiv` packages of every version and zips inside zips
+- Settings files (`.txt` `.ini` `.cfg`) for scripts and plugins go with them
 - Models and textures are packed for you
 - `gta.dat`, car lines and trainer lists are added for you
 - Warns you about missing tools before you install
