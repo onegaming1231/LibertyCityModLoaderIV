@@ -65,6 +65,7 @@ function openGame(p) {
   for (const fn of [C.renameOldImgs, C.moveDataFiles, C.moveKeyedData]) { try { fn(); } catch (e) { C.appendLog('errors.log', e.message); } }
   try { const mm = C.loadDb().filter(C.inLib); if (mm.length) C.syncFiles(C.allModFiles(mm), C.loadDb()); } catch (e) { C.appendLog('errors.log', 'sync: ' + e.message); }
   try { C.updateArchivesIfStale(); } catch (e) { /* */ }
+  try { C.publishRootFiles(); } catch (e) { C.appendLog('errors.log', 'root files: ' + e.message); }
   return { ok: true, game: E.game, repaired };
 }
 // a plan keeps its rows here; the window gets a copy with an id

@@ -6,6 +6,7 @@ const cp = require('child_process');
 const os = require('os');
 const F = require('./formats.cjs');
 const C = require('./core.cjs');
+const S = require('./sniff.cjs');
 const { E, J, lc, eqI, isFile, isDir, exists, leaf, walkFiles, readLines, readText, mkParent, rm } = C;
 const status = (t, c) => C.status(t, c);
 
@@ -64,17 +65,36 @@ function expandMod(p) {
     else if (e === '.rar' && findUnRar()) cp.execFileSync(findUnRar(), ['x', '-y', p, tmp + path.sep], { windowsHide: true, stdio: 'ignore' });
     else { const er = new Error("Can't open " + e + ' files. Install 7-Zip (free) or extract the mod first and choose the folder.'); er.friendly = true; er.need7z = true; throw er; }
   }
+  // unpack archives packed inside the download (like a .zip inside a .rar), two levels deep
+  for (let depth = 0; depth < 2; depth++) {
+    const inner = walkFiles(tmp).filter(f => /\.(zip|rar|7z)$/i.test(f));
+    if (!inner.length) break;
+    for (const a of inner) {
+      const d = path.join(path.dirname(a), stemOf(a));
+      const dest = exists(d) ? d + ' (unpacked)' : d;
+      try {
+        if (/\.zip$/i.test(a)) { try { F.zip.extract(a, dest); } catch (er) { const z = find7z(); if (!z) throw er; cp.execFileSync(z, ['x', '-y', '-o' + dest, a], { windowsHide: true, stdio: 'ignore' }); } }
+        else { const z = find7z(); if (z) cp.execFileSync(z, ['x', '-y', '-o' + dest, a], { windowsHide: true, stdio: 'ignore' }); else if (/\.rar$/i.test(a) && findUnRar()) cp.execFileSync(findUnRar(), ['x', '-y', a, dest + path.sep], { windowsHide: true, stdio: 'ignore' }); else continue; }
+        fs.rmSync(a, { force: true });
+      } catch (er) { /* left as it is - shown in the list */ }
+    }
+  }
   // unpack any OpenIV packages found inside
   for (const o of walkFiles(tmp).filter(f => /\.oiv$/i.test(f))) {
     const d = path.join(path.dirname(o), stemOf(o) + '__oiv');
-    try { F.zip.extract(o, d); fs.rmSync(o, { force: true }); } catch (er) { /* left as is */ }
+    try { F.zip.extract(o, d); fs.rmSync(o, { force: true }); }
+    catch (er) { const z = find7z(); if (z) { try { cp.execFileSync(z, ['x', '-y', '-o' + d, o], { windowsHide: true, stdio: 'ignore' }); fs.rmSync(o, { force: true }); } catch (e2) { /* left as is */ } } }
   }
   return tmp;
 }
 
 // ---------------------------------------------------------------- docs and pictures
 const isPicture = (f) => /\.(jpg|jpeg|png|bmp|gif|webp)$/i.test(f.name);
+const SOURCE_CODE = /\.(cpp|cc|c|h|hpp|hxx|ixx|py|sln|vcxproj|filters|user|pdb|lib|obj|exp|ilk|map|cmake|bat|sh|ps1)$/i;
+function urlOf(f) { try { const m = /^URL=(.+)$/mi.exec(readText(f.full)); return m ? m[1].trim() : ''; } catch (e) { return ''; } }
 function docRow(f) {
+  if (f.ext === '.url') { const u = urlOf(f); return row(f.full, '', 'SKIP', 'A website link' + (u ? ' (' + u.replace(/^https?:\/\//, '').replace(/\/$/, '') + ')' : '') + ' - not needed by the game'); }
+  if (SOURCE_CODE.test(f.name)) return row(f.full, '', 'SKIP', "Source code - the game doesn't need it");
   if (isPicture(f)) return row(f.full, '', 'PREVIEW', "Just a preview picture - the game doesn't use it. Click to see it.");
   return row(f.full, '', 'SKIP', 'Readme or notes - not needed by the game');
 }
@@ -92,13 +112,14 @@ function isDoc(f, gfxDirs) {
   }
   if (/\.(txt|nfo|md|doc|docx)$/.test(n) && n !== 'commandline.txt') return true;
   if (n === 'thumbs.db' || /^\.git/.test(n) || n === '.editorconfig') return true;
+  if (SOURCE_CODE.test(n)) return true;
   return false;
 }
 const row = (src, dest, kind, note) => ({ Source: src, Dest: dest, Kind: kind, Note: note || '' });
 
 // ---------------------------------------------------------------- where does this file go? (clues, strongest first)
 let learned = null, binIndex = null, gameFileIdx = null, rpfIndex = null, planHints = [];
-function resetIndexes() { learned = null; binIndex = null; gameFileIdx = null; rpfIndex = null; }
+function resetIndexes() { learned = null; binIndex = null; gameFileIdx = null; rpfIndex = null; S.reset(); }
 const learnedPath = () => J(C.dataDir(), 'learned.json');
 function loadLearned() { if (learned) return learned; learned = {}; const o = C.readJson(learnedPath(), {}); for (const k of Object.keys(o || {})) learned[k] = String(o[k]); return learned; }
 function namePattern(name) {
@@ -276,6 +297,26 @@ function mapRow(src, gp, mod, note) {
   return row(src, gp, 'GAME FOLDER', note);
 }
 
+// a smart-reader answer -> a plan row
+function smartRow(f, id, mod) {
+  if (!id.gp) return row(f.full, '', 'MANUAL', id.why);
+  const r = mapRow(f.full, id.gp, mod, id.why);
+  if (id.kind === 'SCRIPT') r.Kind = 'SCRIPT';
+  return r;
+}
+
+// a .txt that belongs to a script or plugin (its settings or lists), not a readme:
+// it sits in a scripts / plugins folder of the mod, or next to the mod's script / plugin inside its own folder
+const NOTE_NAME = /^(read ?me|leeme|lisezmoi|install|instructions|changelog|change ?log|changes|license|licence|credits|how ?to|info|description|notes?|version|history|faq|about)\b/i;
+function isModSettingsText(f, root, scriptDirs, asiDirs) {
+  if (!/^\.(txt|cfg|log)$/.test(f.ext) || NOTE_NAME.test(f.name) || f.size > 4 * 1024 * 1024) return false;
+  const rel = C.relOf(f.full, root), segs = rel.split('\\').slice(0, -1).map(lc);
+  if (segs.some(s => s === 'scripts' || s === 'plugins')) return true;
+  // next to a script or plugin, but not loose in the top of the download (that's where readmes live)
+  for (const d of [...scriptDirs, ...asiDirs]) if ((f.dir === d || f.dir.startsWith(d + path.sep)) && f.dir !== root) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------- data lines in a notes file
 function isDataLine(target, t) {
   const lf = leaf(target);
@@ -307,9 +348,26 @@ function splitLinesFile(p) {
 }
 
 // ---------------------------------------------------------------- the plan
+// text in UTF-8 or UTF-16 (OpenIV packages use both)
+function readXmlText(p) {
+  const b = fs.readFileSync(p);
+  if (b[0] === 0xFF && b[1] === 0xFE) return b.subarray(2).toString('utf16le');
+  if (b[0] === 0xFE && b[1] === 0xFF) { const s = Buffer.from(b.subarray(2)); s.swap16(); return s.toString('utf16le'); }
+  if (b.length > 3 && b[1] === 0 && b[3] === 0) return b.toString('utf16le');
+  return b.toString('utf8').replace(/^\uFEFF/, '');
+}
 function parseAssembly(xml) {
   // tiny reader for OpenIV assembly.xml: <content> <add source="x">dest</add> <archive path=".."> <add source="..">inner</add> </archive> <text>/<delete>
-  const content = (/<content[^>]*>([\s\S]*?)<\/content>/i.exec(xml) || [])[1] || '';
+  // old packages (version 1.0) have several <content> parts - choices like "the script" and "ScriptHook for patch 1.0.4".
+  // Use the parts for GTA IV, but not the old ScriptHook / ASI loader choices (Fusion Fix and the Complete Edition don't want them)
+  const parts = []; const pr = /<content\b([^>]*)>([\s\S]*?)<\/content>/gi; let pm;
+  while ((pm = pr.exec(xml))) parts.push({ attrs: pm[1], body: pm[2], game: ((/\bgameID\s*=\s*"([^"]*)"/i.exec(pm[1]) || [])[1] || ''), name: ((/\bname\s*=\s*"([^"]*)"/i.exec(pm[1]) || [])[1] || '') });
+  const oldTools = /script\s*hook|asi\s*loader|patch\s*1\.0|xlive|dsound/i;
+  let use = parts.filter(x => !x.game || /^(iv|four)$/i.test(x.game));
+  if (!use.length) use = parts.slice(0, 1);
+  if (use.length > 1) { const keep = use.filter(x => !oldTools.test(x.name)); if (keep.length) use = keep; }
+  const skipped = parts.filter(x => !use.includes(x)).map(x => x.body);
+  const content = use.map(x => x.body).join('\n');
   const adds = [], archives = [];
   const archRe = /<archive\b([^>]*)>([\s\S]*?)<\/archive>/gi; let m;
   const rest = content.replace(archRe, (all, attrs, body) => {
@@ -323,7 +381,8 @@ function parseAssembly(xml) {
   const dec = (s) => String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
   for (const x of adds) { x.source = dec(x.source); x.text = dec(x.text); }
   for (const a of archives) { a.path = dec(a.path); for (const x of a.items) { x.source = dec(x.source); x.text = dec(x.text); } }
-  return { adds, archives, edits: /<(text|delete)\b/i.test(content) };
+  const skippedSources = []; for (const b of skipped) { const sr = /\bsource\s*=\s*"([^"]*)"/gi; let sm; while ((sm = sr.exec(b))) skippedSources.push(dec(sm[1])); }
+  return { adds, archives, edits: /<(text|delete)\b/i.test(content), skippedSources };
 }
 function buildPlan(root, modName) {
   const rows = [];
@@ -375,14 +434,15 @@ function buildPlan(root, modName) {
   const oivHandled = new Set();
   for (const asm of files.filter(f => eqI(f.name, 'assembly.xml'))) {
     try {
-      const x = parseAssembly(readText(asm.full));
+      const x = parseAssembly(readXmlText(asm.full));
       const base = path.join(asm.dir, 'content');
+      const srcOf = (s) => { const a = path.join(base, C.toOs(s)); if (exists(a)) return a; const b = path.join(asm.dir, C.toOs(s)); return exists(b) ? b : a; };
       for (const add of x.adds) {
-        const src = path.join(base, C.toOs(add.source)); const dst = add.text.replace(/\//g, '\\').trim();
+        const src = srcOf(add.source); const dst = add.text.replace(/\//g, '\\').trim();
         if (exists(src)) { oivHandled.add(src); rows.push(mapRow(src, dst, mod, 'OpenIV package')); }
       }
       for (const arc of x.archives) for (const add of arc.items) {
-        const src = path.join(base, C.toOs(add.source)); if (!exists(src)) continue;
+        const src = srcOf(add.source); if (!exists(src)) continue;
         oivHandled.add(src);
         const arcPath = arc.path.replace(/\//g, '\\').trim(), innerPath = add.text.replace(/\\/g, '/').trim().replace(/^\/+/, '');
         if (/\.img$/i.test(arcPath)) rows.push(row(src, 'update\\' + mod + '\\' + C.imgName(mod), 'IMG', 'Packed into an archive Fusion Fix loads (was for ' + leaf(arcPath) + ')'));
@@ -392,6 +452,8 @@ function buildPlan(root, modName) {
           else rows.push(row(src, '', 'MANUAL', 'Goes inside ' + arcPath + ", which isn't in your game folder"));
         } else rows.push(row(src, '', 'MANUAL', 'Goes inside an archive within an archive (' + arcPath + ') - not supported yet'));
       }
+      // files only used by the package's other choices (old ScriptHook, ASI loader...): not installed
+      for (const s0 of x.skippedSources) { const src = srcOf(s0); if (exists(src) && !oivHandled.has(src)) { oivHandled.add(src); rows.push(row(src, '', 'SKIP', "Only for old game versions (another choice in the package) - not needed with Fusion Fix")); } }
       if (x.edits) rows.push(row(asm.full, '', 'MANUAL', 'Package also edits text files - check its readme'));
       oivHandled.add(asm.full);
     } catch (e) { /* */ }
@@ -404,10 +466,16 @@ function buildPlan(root, modName) {
   }
   const codeLc = lc(codeText);
   const remixPack = files.some(f => /^\.usd[ac]?$/.test(f.ext));
-  let tmpDir = null;
+  let tmpDir = null, needsIvsdk = false;
   for (const f of files) {
     if (oivHandled.has(f.full)) continue;
-    if (/__oiv[\\/]/i.test(f.full)) continue;
+    if (/__oiv[\\/]/i.test(f.full)) {
+      // the package's own description files are not needed
+      if (/__oiv[\\/](assembly\.xml|icon\.png|metadata\.xml)$/i.test(f.full) || isPicture(f)) { rows.push(docRow(f)); continue; }
+      // a package file the instructions didn't cover: place it like any other file, from its path inside "content"
+      const inner = (/__oiv[\\/](?:content[\\/])?(.+)$/i.exec(f.full) || [])[1];
+      if (inner && /[\\/]/.test(inner)) { const gp = inner.replace(/\//g, '\\'); if (/^(update|scripts|plugins|pc|common|tlad|tbogt)\\/i.test(gp)) { rows.push(mapRow(f.full, gp, mod, 'From the OpenIV package')); continue; } }
+    }
     // a notes file listing lines for handling.dat, vehicles.ide, carcols.dat... - the app adds them
     if (/^\.(txt|dat|ini)$/.test(f.ext) && f.size < 1024 * 1024 && !C.LINE_FILES[lc(f.name)]) {
       let parts = []; try { parts = splitLinesFile(f.full); } catch (e) { /* */ }
@@ -422,7 +490,9 @@ function buildPlan(root, modName) {
         continue;
       }
     }
-    if (isDoc(f, gfxDirs) && !(codeText && !/^read ?me/i.test(f.name) && codeLc.includes(lc(stemOf(f.name))))) { rows.push(docRow(f)); continue; }
+    // a file the mod's program asks for by name is a data file (short names like "10" match by chance, pictures never count)
+    const usedByCode = codeText && !isPicture(f) && !SOURCE_CODE.test(f.name) && !/^read ?me/i.test(f.name) && stemOf(f.name).length >= 4 && codeLc.includes(lc(stemOf(f.name)));
+    if (isDoc(f, gfxDirs) && !usedByCode && !isModSettingsText(f, root, scriptDirs, asiDirs)) { rows.push(docRow(f)); continue; }
     const rel = C.relOf(f.full, root), segs = rel.split('\\');
     const skipDir = segs.slice(0, -1).filter(s => /do ?n.?t ?copy|dont ?copy|not ?copy|^_?optional\b|^backups?$|^original ?files$|^originals?$|^alternat/i.test(s));
     if (skipDir.length) { rows.push(row(f.full, '', 'SKIP', "Left out - the mod's '" + skipDir[0] + "' folder (click it to add it anyway)")); continue; }
@@ -474,6 +544,9 @@ function buildPlan(root, modName) {
       imgNames.add(n);
       let hit = null; try { hit = C.findInArchives(f.name); } catch (er) { /* */ }
       if (hit) { rows.push(archiveRow(f.full, hit, mod)); continue; }
+      // not in the game's archives: read it (a loose game texture like blips.wtd, or a wrong file name)
+      let id = null; try { id = S.identify(f); } catch (er) { /* */ }
+      if (id) { rows.push(smartRow(f, id, mod)); continue; }
       const ix = C.archiveIndex();
       rows.push(row(f.full, 'update\\' + mod + '\\' + C.imgName(mod), 'IMG', ix.size ? 'New model (not in your game) - packed; an add-on may also need lines added, see its readme' : 'Packed into an archive Fusion Fix loads'));
       continue;
@@ -481,12 +554,29 @@ function buildPlan(root, modName) {
     let inScriptDir = false, inAsiDir = false, scriptBase = '', asiBase = '';
     for (const d of scriptDirs) if (f.dir === d || f.dir.startsWith(d + path.sep)) { inScriptDir = true; scriptBase = d; }
     for (const d of asiDirs) if (f.dir === d || f.dir.startsWith(d + path.sep)) { inAsiDir = true; asiBase = d; }
+    if ((e === '.dll' && !n.endsWith('.net.dll') && !inScriptDir) || e === '.asi') {
+      let id = null; try { id = S.identify(f); } catch (er) { /* */ }
+      if (id) {
+        if (id.oldOnly) warning = warning || (f.name + " was made with IV-SDK, which only works on the old GTA IV (1.0.7 / 1.0.8). It can't run on your Complete Edition, so it was left out.");
+        if (id.needs === 'IV-SDK .NET') needsIvsdk = true;
+        rows.push(smartRow(f, id, mod)); continue;
+      }
+    }
     if (e === '.dll' && !n.endsWith('.net.dll')) { rows.push(row(f.full, f.name, 'GAME FOLDER', 'Helper library')); continue; }
+    // a game data file sitting next to a plugin (same name or same layout as a game file) still goes to the game data
+    if (inAsiDir && !inScriptDir && e !== '.asi' && e !== '.dll') {
+      let id = null; try { id = S.identify(f); } catch (er) { /* */ }
+      if (id && id.gp) { rows.push(smartRow(f, id, mod)); continue; }
+    }
     if (e === '.asi' || (inAsiDir && !inScriptDir && !MODEL_EXT.includes(e))) { rows.push(row(f.full, C.relOf(f.full, asiBase), 'GAME FOLDER', 'Plugin')); continue; }
     if (inScriptDir) { rows.push(row(f.full, 'scripts\\' + C.relOf(f.full, scriptBase), 'SCRIPT', '')); continue; }
     if (e === '.img') { rows.push(row(f.full, 'update\\' + mod + '\\' + f.name, 'OVERLOADER', 'Extra archive (Fusion loads it)')); continue; }
     if (e !== '.exe') {
       const like = findPlace(f);
+      if (!like || like.Score < 95) {
+        let id = null; try { id = S.identify(f); } catch (er) { /* */ }
+        if (id && (id.gp || !like)) { rows.push(smartRow(f, id, mod)); continue; }
+      }
       if (like) { const dest = like.Folder ? like.Folder + '\\' + f.name : f.name; rows.push(row(f.full, dest, /^scripts\\/i.test(dest) ? 'SCRIPT' : 'GAME FOLDER', like.Why)); continue; }
     }
     if (e !== '.exe' && e !== '.rpf' && e !== '.img') {
@@ -497,7 +587,33 @@ function buildPlan(root, modName) {
     if (e === '.exe') { rows.push(row(f.full, '', 'MANUAL', 'A program - run it yourself if the readme says so')); continue; }
     rows.push(row(f.full, '', 'MANUAL', /^\.(ini|cfg|xml|txt|json)$/.test(e) ? "Settings for a script mod you don't have yet - click it to choose its folder" : 'Not sure where this goes - click it to choose a folder'));
   }
+  if (needsIvsdk && !warning) warning = 'This mod has IV-SDK .NET scripts. IV-SDK .NET only supports the old GTA IV (1.0.7 / 1.0.8) so far, so they may not run on the Complete Edition.';
   if (rows.some(r => r.Kind === 'DATA LINES')) for (const r of rows) if (r.Note.includes('an add-on may also need lines added')) r.Note = 'New model - packed; its game data lines are added below';
+  // files that belong to a plugin that was left out (its settings, notes) are left out too
+  const leftOut = rows.filter(r => r.Kind === 'MANUAL' && /only works on the old GTA IV/.test(r.Note));
+  for (const lo of leftOut) {
+    const dir = path.dirname(lo.Source), stem = lc(stemOf(path.basename(lo.Source)));
+    // other plugins that are kept in the same folder keep their own files
+    const otherPlugin = rows.some(x => x !== lo && x.Dest && /\.asi$/i.test(x.Source) && path.dirname(x.Source) === dir);
+    for (const r of rows) {
+      if (r === lo || !r.Dest || r.Kind === 'SKIP') continue;
+      const rd = path.dirname(r.Source), isProgram = /\.(asi|dll)$/i.test(r.Source);
+      if ((rd === dir || rd.startsWith(dir + path.sep)) && (lc(stemOf(path.basename(r.Source))) === stem || (r.Note === 'Plugin' && !isProgram && !otherPlugin))) { r.Kind = 'SKIP'; r.Dest = ''; r.Note = 'Belongs to ' + path.basename(lo.Source) + ', which was left out'; }
+    }
+  }
+  // two files for the same place (like a "For GTA IV" and a "For EFLC" copy): keep one
+  const byDest = new Map();
+  for (const r of rows) {
+    if (!r.Dest || /^(IMG|DATA LINES)$/.test(r.Kind) || r.Dest.includes('|')) continue;
+    const k = lc(r.Dest), prev = byDest.get(k);
+    if (!prev) { byDest.set(k, r); continue; }
+    // for the main game, the copy that isn't for the episodes (EFLC / TLAD / TBoGT) wins
+    const ep = (x) => /[\\/](for )?(eflc|tlad|tbogt|episodes?)[\\/ ]|[\\/]for eflc/i.test(x.Source) ? 1 : 0;
+    const mainDest = !/(^|\\)(tlad|tbogt)\\/i.test(r.Dest.replace(/^update\\[^\\]+\\/i, ''));
+    let loser = r;
+    if (mainDest && ep(prev) && !ep(r)) { loser = prev; byDest.set(k, r); }
+    loser.Kind = 'SKIP'; loser.Note = 'Another copy for the same place - ' + (loser === prev ? 'the main-game one is used' : 'the first one is used'); loser.Dest = '';
+  }
   const placed = new Set(rows.filter(r => r.Dest).map(r => lc(path.basename(r.Source))));
   for (const r of rows) if (r.Kind === 'MANUAL' && placed.has(lc(path.basename(r.Source)))) { r.Kind = 'SKIP'; r.Note = 'Another copy of this file in the mod - the first one is used'; }
   return { rows, warning };
@@ -583,10 +699,17 @@ function loadMod(p) {
     const have = C.loadDb().find(m => C.modSource(m) && String(C.modSource(m).NexusId) === String(nx.Source.NexusId));
     if (have) modName = String(have.Name);
   }
-  const { rows, warning } = buildPlan(tmp, modName);
+  let { rows, warning } = buildPlan(tmp, modName);
+  // nothing in this download can be installed: tell the user and show what the readme says
+  let readme = '';
+  if (!rows.some(r => r.Dest || r.Kind === 'MANUAL')) {
+    warning = warning || "There's nothing to install in this download - it only has notes, links or pictures. The mod files may be a separate download: check the readme below or the mod's web page.";
+    const notes = walkFiles(tmp).filter(f => /\.(txt|nfo|md)$/i.test(f)).sort((a, b) => (/read ?me/i.test(path.basename(b)) ? 1 : 0) - (/read ?me/i.test(path.basename(a)) ? 1 : 0));
+    for (const n of notes) { try { const raw = fs.readFileSync(n); let t = raw.toString('utf8').replace(/^\uFEFF/, ''); if (t.includes('\uFFFD')) { try { t = new TextDecoder('windows-1251').decode(raw); } catch (e) { t = raw.toString('latin1'); } } t = t.trim(); if (t) { readme = path.basename(n) + '\n\n' + t.slice(0, 4000); break; } } catch (e) { /* */ } }
+  }
   if (rows.some(r => r.Kind === 'CORE')) modName = 'Fusion Fix';
   let checks = []; try { checks = modChecks(tmp, rows); } catch (e) { /* */ }
-  return { temp: tmp, modName, source, rows, warning, checks, file: p };
+  return { temp: tmp, modName, source, rows, warning, checks, file: p, readme };
 }
 // you pick the folder for a file the app couldn't place - remembered for next time
 function chooseRowFolder(r, folderFull) {

@@ -12,11 +12,11 @@ const srv = http.createServer((req, res) => {
   if (u.pathname === '/oauth/authorize') {
     const q = u.searchParams;
     assert.strictEqual(q.get('response_type'), 'code'); assert.strictEqual(q.get('client_id'), 'liberty_city_mod_loader_iv');
-    assert.strictEqual(q.get('code_challenge_method'), 'S256'); assert.ok(/^http:\/\/127\.0\.0\.1:\d+$/.test(q.get('redirect_uri')));
+    assert.strictEqual(q.get('code_challenge_method'), 'S256'); assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(q.get('redirect_uri')));
     challenge = q.get('code_challenge'); redirect = q.get('redirect_uri');
     const code = 'code' + Math.random(); codes.set(code, challenge);
     log.push('authorize');
-    res.writeHead(302, { Location: redirect + '/?code=' + code + '&state=' + encodeURIComponent(q.get('state')) }); res.end(); return;
+    res.writeHead(302, { Location: redirect + '?code=' + code + '&state=' + encodeURIComponent(q.get('state')) }); res.end(); return;
   }
   if (u.pathname === '/oauth/token') {
     let body = ''; req.on('data', (d) => body += d); req.on('end', () => {
@@ -48,6 +48,7 @@ const srv = http.createServer((req, res) => {
 });
 srv.listen(0, '127.0.0.1', async () => {
   const port = srv.address().port;
+  process.env.LCML_TEST_OAUTH_PORT = '18089';
   process.env.LCML_TEST_OAUTH_URL = 'http://127.0.0.1:' + port + '/oauth';
   process.env.LCML_TEST_NEXUS_API = 'http://127.0.0.1:' + port + '/v1/';
   const C = require('../electron/engine/core.cjs');

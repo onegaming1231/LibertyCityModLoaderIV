@@ -209,6 +209,7 @@ function findExternalMods() {
   const g = E.game; if (!g) return [];
   fileTextCache = new Map(); foundTimes = new Map();
   const owned = new Set(); for (const m of C.loadDb()) for (const f of m.Files || []) if (f) owned.add(lc(f));
+  for (const k of Object.keys(C.loadRootLinks())) owned.add(lc(k));   // copies the app made so the game sees them
   const groups = new Map();
   const add = (key, name, where, rel) => {
     if (owned.has(lc(rel)) || isCoreFile(rel)) return;
@@ -376,6 +377,7 @@ function findLeftovers() {
   const items = []; if (!E.game) return items;
   const g = E.game, mods = C.loadDb(), on = mods.filter(C.isOn);
   const owned = new Map(); for (const m of on) for (const f of m.Files || []) if (f) owned.set(lc(f), String(m.Name));
+  for (const k of Object.keys(C.loadRootLinks())) if (!owned.has(k)) owned.set(k, 'Liberty City Mod Loader IV');   // copies the app made so the game sees them
   const isOwned = (r) => owned.has(lc(r));
   const rtxOn = on.some(m => (m.Files || []).some(f => /(^|\\)rtx_comp\\/i.test(f)));
   let rootFiles = []; try { rootFiles = fs.readdirSync(g, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name); } catch (e) { /* */ }
@@ -619,6 +621,9 @@ const OAUTH_URL = process.env.LCML_TEST_OAUTH_URL || 'https://users.nexusmods.co
 const NEXUS_API = process.env.LCML_TEST_NEXUS_API || 'https://api.nexusmods.com/v1/';
 // the app's id, given by Nexus Mods for this app
 const OAUTH_CLIENT_ID = process.env.LCML_OAUTH_CLIENT_ID || 'liberty_city_mod_loader_iv';
+// the fixed address Nexus sends you back to after login (registered with Nexus Mods)
+const OAUTH_PORT = Number(process.env.LCML_TEST_OAUTH_PORT || 8089);
+const OAUTH_REDIRECT = 'http://127.0.0.1:' + OAUTH_PORT + '/callback';
 const APP_HEADERS = { 'Application-Name': 'LibertyCityModLoaderIV', 'Application-Version': '1.0' };
 const b64url = (b) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function jwtPayload(t) { try { return JSON.parse(Buffer.from(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); } catch (e) { return {}; } }
@@ -672,7 +677,7 @@ function nexusLogin() {
     const server = http.createServer(async (req, res) => {
       const u = new URL(req.url, 'http://127.0.0.1');
       const code = u.searchParams.get('code'), err = u.searchParams.get('error');
-      if (!code && !err) { res.writeHead(404); res.end(); return; }
+      if (u.pathname !== '/callback' || (!code && !err)) { res.writeHead(404); res.end(); return; }
       if (u.searchParams.get('state') !== state) { resultPage(res, false, 'This login link is old. Please press Log In again in the app.'); return; }
       try {
         if (err) throw friendly('Nexus said: ' + (u.searchParams.get('error_description') || err));
@@ -685,10 +690,10 @@ function nexusLogin() {
     const timer = setTimeout(() => { done(); reject(friendly('The login took too long. Please press Log In again.')); }, 10 * 60000);
     const done = () => { if (finished) return; finished = true; clearTimeout(timer); try { server.close(); } catch (e) { /* */ } login = null; };
     login = { cancel: (why) => { done(); reject(friendly(why || 'Login cancelled.')); } };
-    server.on('error', (e) => { done(); reject(e); });
-    server.listen(0, '127.0.0.1', () => {
-      redirect = 'http://127.0.0.1:' + server.address().port;
-      const q = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, scope: 'openid public', state, code_challenge_method: 'S256', code_challenge: challenge });
+    server.on('error', (e) => { done(); reject(e.code === 'EADDRINUSE' ? friendly('Another program is using port ' + OAUTH_PORT + '. Close it and press Log In again.') : e); });
+    server.listen(OAUTH_PORT, '127.0.0.1', () => {
+      redirect = OAUTH_REDIRECT;
+      const q = new URLSearchParams({ response_type: 'code', client_id: OAUTH_CLIENT_ID, redirect_uri: redirect, scope: '', state, code_challenge_method: 'S256', code_challenge: challenge });
       E.host.open(OAUTH_URL + '/authorize?' + q.toString());
       status('Log in on the Nexus Mods page that opened in your browser, then press Authorise.', 'dim');
     });

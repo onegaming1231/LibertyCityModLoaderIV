@@ -87,6 +87,12 @@ export const Install: React.FC = () => {
                 <ul className="space-y-1.5">{plan.checks.map((c, i) => <li key={i} className="text-[13.5px] text-zinc-200 whitespace-pre-wrap leading-snug">- {c}</li>)}</ul>
               </div>
             )}
+            {plan.readme && !ready && !manual && (
+              <Card className="p-4">
+                <div className="text-[13px] font-bold uppercase tracking-wide text-zinc-400 font-barlow-condensed mb-2">What the readme says</div>
+                <pre className="max-h-[32vh] overflow-y-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-200 font-sans select-text">{plan.readme}</pre>
+              </Card>
+            )}
             <Card className="overflow-hidden">
               <div className="grid grid-cols-[minmax(160px,1.1fr)_minmax(200px,1.3fr)_120px_minmax(200px,1.4fr)] gap-3 px-4 py-2.5 border-b border-[#363a44] text-[12px] font-bold uppercase tracking-wider text-zinc-400 font-barlow-condensed">
                 <span>File</span><span>Goes to</span><span>Type</span><span>Why</span>
@@ -109,7 +115,7 @@ export const Install: React.FC = () => {
               </div>
             </Card>
             <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[13.5px] text-zinc-400">{manual ? 'Click a yellow row to choose where it goes (the app remembers it).' : 'Everything has a place. Press Install.'}</span>
+              <span className="text-[13.5px] text-zinc-400">{manual ? 'Click a yellow row to choose where it goes (the app remembers it).' : ready ? 'Everything has a place. Press Install.' : 'Nothing to install from this download.'}</span>
               <div className="flex gap-2">
                 <Btn icon={<X className="w-4 h-4" />} onClick={cancel}>Cancel</Btn>
                 {previews.length > 0 && <Btn icon={<ImageIcon className="w-4 h-4" />} onClick={() => setPics(previews[0].i)}>View Pictures</Btn>}

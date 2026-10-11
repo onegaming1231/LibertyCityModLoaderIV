@@ -23,7 +23,7 @@ export interface ModRow {
   version: string; update: string; url: string; nexusId: string; archives: number; thumb: string | null; fileList: string[];
 }
 export interface PlanRow { Source: string; Dest: string; Kind: string; Note: string }
-export interface Plan { id: string; modName: string; rows: PlanRow[]; warning: string; checks: string[]; source: any; temp?: string; file?: string }
+export interface Plan { id: string; modName: string; rows: PlanRow[]; warning: string; checks: string[]; source: any; temp?: string; file?: string; readme?: string }
 export interface Essentials { version: string; complete: boolean; fusionFix: boolean; fusionFixVersion: string; vehicleBudget: string | null; scriptHookDotNet: boolean; dlss: boolean; sevenZip: boolean }
 
 export const KIND_LABEL: Record<string, string> = {

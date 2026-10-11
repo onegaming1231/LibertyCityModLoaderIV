@@ -546,6 +546,58 @@ function syncFiles(rels, mods) {
   if (list.some(isMergeCopy)) { try { rebuildMerges(mods); } catch (e) { appendLog('merges.log', e.message); } }
   if (list.some(r => /\.ide$/i.test(r))) { try { updateTrainerLists(mods); } catch (e) { /* */ } }
   if (list.some(r => /\.(wtd|img)$/i.test(r))) { try { rebuildTextureMixes(mods); } catch (e) { appendLog('texture-mix.log', e.stack || e.message); } }
+  try { publishRootFiles(); } catch (e) { appendLog('errors.log', 'root files: ' + (e.stack || e.message)); }
+}
+
+// ---------------------------------------------------------------- what the game really loads from "update"
+// Fusion Fix's loader only sees update\<game path> (like update\pc\models\cdimages\playerped.rpf), not
+// update\<mod name>\<game path>. Only .img files are loaded from any folder inside update.
+// So every other file the app keeps in a mod's own update folder (and the archives and textures it builds)
+// also gets a copy at update\<game path> - a hard link, so it takes no extra space.
+const rootLinksPath = () => J(dataDir(), 'root-links.json');
+function loadRootLinks() { const o = readJson(rootLinksPath(), {}) || {}; const h = {}; for (const k of Object.keys(o)) h[lc(k)] = o[k]; return h; }
+// update\<mod>\pc\textures\hud.wtd -> update\pc\textures\hud.wtd (null if the game already sees it, or it's an .img)
+function rootPathOf(rel) {
+  const s = String(rel).split('\\');
+  if (s.length < 4 || lc(s[0]) !== 'update' || ROOTS.includes(lc(s[1])) || !ROOTS.includes(lc(s[2])) || /\.img$/i.test(rel)) return null;
+  return 'update\\' + s.slice(2).join('\\');
+}
+function publishRootFiles() {
+  if (!E.game) return;
+  const dep = loadDeployed(), want = new Map();
+  const put = (rootRel, src) => want.set(lc(rootRel), src);
+  // 1. mods' files in their own update folders (only the ones that are in the game now)
+  const realCase = new Map(); for (const m of loadDb()) for (const f of m.Files || []) if (f) realCase.set(lc(f), String(f));
+  for (const k of Object.keys(dep)) { const rel = realCase.get(k) || k, rp = rootPathOf(rel); if (rp && isFile(J(E.game, rel))) put(rp, J(E.game, rel)); }
+  // 2. mixed textures, 3. archives the app built (these win)
+  for (const dir of [MIX_DIR, ARCHIVE_DIR]) {
+    const base = J(E.game, dir); if (!isDir(base)) continue;
+    for (const f of walkFiles(base)) { const r = relOf(f, base); if (/\.img$/i.test(r) || !ROOTS.includes(lc(r.split('\\')[0]))) continue; put('update\\' + r, f); }
+  }
+  const links = loadRootLinks(); let changed = false;
+  for (const k of Object.keys(links)) {
+    const src = want.get(k), p = J(E.game, k);
+    if (src && lc(src) === lc(links[k].Src) && isFile(p) && sameFile(p, src)) continue;
+    if (isFile(p) && !dep[k]) rm(p);
+    if (!src) {
+      const rp = replacedFile('root\\' + k);
+      if (isFile(rp) && !exists(p)) { mkParent(p); fs.renameSync(rp, p); removeEmptyDirs(path.dirname(rp)); }
+      else removeEmptyDirs(path.dirname(p));
+      delete links[k];
+    }
+    changed = true;
+  }
+  for (const [k, src] of want) {
+    if (dep[k]) continue;   // a mod put its own file right at that place: that one is used
+    const p = J(E.game, k);
+    if (links[k] && lc(links[k].Src) === lc(src) && isFile(p) && sameFile(p, src)) continue;
+    if (isFile(p) && !links[k]) {   // a file nobody installed with the app: kept safe, put back later
+      const rp = replacedFile('root\\' + k);
+      if (!isFile(rp)) { mkParent(rp); fs.renameSync(p, rp); } else rm(p);
+    }
+    try { placeFile(src, p); links[k] = { Src: src }; changed = true; } catch (e) { status("Couldn't place " + k + ': ' + e.message, 'red'); }
+  }
+  if (changed) { try { writeJson(rootLinksPath(), links); } catch (e) { /* */ } }
 }
 
 // ---------------------------------------------------------------- game archives: key, index, modded copies
@@ -635,7 +687,7 @@ function rebuildArchives() {
     for (const it of modArchives(m)) { const k = lc(it.Archive); if (!byArc.has(k)) byArc.set(k, { archive: String(it.Archive), items: [] }); byArc.get(k).items.push(it); }
   }
   if (isDir(outRoot)) for (const old of walkFiles(outRoot)) { const rel = lc(relOf(old, outRoot)); if (!byArc.has(rel)) { rm(old); removeEmptyDirs(path.dirname(old)); } }
-  if (!byArc.size) { updateWholeCopies(); return true; }
+  if (!byArc.size) { updateWholeCopies(); try { publishRootFiles(); } catch (e) { /* */ } return true; }
   const key = archiveKey(); let ok = true;
   for (const [, a] of byArc) {
     const lf = leaf(a.archive);
@@ -653,6 +705,7 @@ function rebuildArchives() {
     } catch (e) { ok = false; status("Couldn't pack " + lf + ': ' + e.message, 'red'); }
   }
   updateWholeCopies();
+  try { publishRootFiles(); } catch (e) { appendLog('errors.log', 'root files: ' + (e.stack || e.message)); }
   return ok;
 }
 function updateArchivesIfStale() {
@@ -791,6 +844,6 @@ module.exports = {
   ARCHIVE_DIR, DATA_DIR, MIX_DIR, MIX_IMG, isWholeArchiveCopy, builtArchives,
   KEYED, MERGE_TARGETS, LINE_FILES, isMergeCopy, isDataPath, updateDest, lineKey, mergeKeyed, rebuildMerges, ideNames, updateTrainerLists,
   isMixWtd, imgName, isModImg, looseMixSets, imgMixSets, rebuildTextureMixes, mixArchiveTextures,
-  copyRank, syncFiles, archiveKey, gameArchives, readArchiveList, archiveIndex, findInArchives, archiveBase, touchesArchive, rebuildArchives, updateArchivesIfStale, updateWholeCopies,
+  copyRank, syncFiles, publishRootFiles, loadRootLinks, rootPathOf, archiveKey, gameArchives, readArchiveList, archiveIndex, findInArchives, archiveBase, touchesArchive, rebuildArchives, updateArchivesIfStale, updateWholeCopies,
   convertToLibrary, renameOldImgs, moveDataFiles, moveKeyedData, importToLibrary, repairImgArchives, setGame, resetCaches,
 };
